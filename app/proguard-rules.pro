@@ -36,6 +36,7 @@
     public static **[] values();
 }
 -keepnames class me.zhanghai.android.files.** implements android.os.Parcelable
+-keep class me.zhanghai.android.files.provider.nfs.client.NfsNative { *; }
 
 # Apache FtpServer
 -keepclassmembers class * implements org.apache.mina.core.service.IoProcessor {

@@ -619,6 +619,30 @@
     <string name="storage_edit_sftp_server_private_key_password_error_invalid">Invalid private key password</string>
     <string name="storage_edit_sftp_server_connect_and_add">Connect and add</string>
     <string name="storage_edit_sftp_server_add">Add</string>
+    <string name="storage_add_storage_nfs_server">NFS server</string>
+    <string name="storage_edit_nfs_server_title_edit">Edit NFS server</string>
+    <string name="storage_edit_nfs_server_title_add">Add NFS server</string>
+    <string name="storage_edit_nfs_server_host">Hostname</string>
+    <string name="storage_edit_nfs_server_host_error_empty">Enter a hostname</string>
+    <string name="storage_edit_nfs_server_host_error_invalid">Invalid hostname</string>
+    <string name="storage_edit_nfs_server_port">NFS port</string>
+    <string name="storage_edit_nfs_server_port_placeholder" translatable="false">portmapper</string>
+    <string name="storage_edit_nfs_server_port_error_invalid">Invalid port</string>
+    <string name="storage_edit_nfs_server_export">Export</string>
+    <string name="storage_edit_nfs_server_export_helper">The server must allow non-privileged source ports (export option insecure). A port is used for both the mount protocol and NFS, without the portmapper. Leave the port empty to discover both via the portmapper.</string>
+    <string name="storage_edit_nfs_server_export_error_empty">Enter an export</string>
+    <string name="storage_edit_nfs_server_path">Path inside export</string>
+    <string name="storage_edit_nfs_server_path_placeholder">Can be left empty</string>
+    <string name="storage_edit_nfs_server_uid">User ID</string>
+    <string name="storage_edit_nfs_server_uid_placeholder" translatable="false">65534</string>
+    <string name="storage_edit_nfs_server_uid_error_invalid">Invalid user ID</string>
+    <string name="storage_edit_nfs_server_gid">Group ID</string>
+    <string name="storage_edit_nfs_server_gid_placeholder" translatable="false">65534</string>
+    <string name="storage_edit_nfs_server_gid_error_invalid">Invalid group ID</string>
+    <string name="storage_edit_nfs_server_name">Name</string>
+    <string name="storage_edit_nfs_server_name_placeholder">Use hostname</string>
+    <string name="storage_edit_nfs_server_connect_and_add">Connect and add</string>
+    <string name="storage_edit_nfs_server_add">Add</string>
     <string name="storage_add_lan_smb_server_title" translatable="false">@string/storage_edit_smb_server_title_add</string>
     <string name="storage_add_lan_smb_server_loading">Searching for SMB servers…</string>
     <string name="storage_add_lan_smb_server_add">Add manually</string>

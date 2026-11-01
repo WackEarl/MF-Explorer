@@ -1,0 +1,4 @@
+[submodule "libnfs"]
+	path = app/src/main/jni/libnfs
+	url = https://github.com/sahlberg/libnfs.git
+	shallow = true
