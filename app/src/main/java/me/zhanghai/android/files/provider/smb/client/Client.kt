@@ -22,6 +22,7 @@ import com.hierynomus.mssmb2.messages.SMB2ChangeNotifyResponse
 import com.hierynomus.protocol.commons.EnumWithValue
 import com.hierynomus.smbj.ProgressListener
 import com.hierynomus.smbj.SMBClient
+import com.hierynomus.smbj.SmbConfig
 import com.hierynomus.smbj.auth.AuthenticationContext
 import com.hierynomus.smbj.common.SMBRuntimeException
 import com.hierynomus.smbj.session.Session
@@ -54,6 +55,10 @@ object Client {
     lateinit var authenticator: Authenticator
 
     private val client = SMBClient()
+
+    // A server that requires encryption rejects a client that never offers it. Same defaults as
+    // client, plus encryptData, and only used when the plain session setup fails.
+    private val encryptedClient = SMBClient(SmbConfig.builder().withEncryptData(true).build())
 
     private val sessions = mutableMapOf<Authority, Session>()
 
@@ -592,41 +597,76 @@ object Client {
     @Throws(ClientException::class)
     private fun getSession(authority: Authority): Session {
         synchronized(sessions) {
-            var session = sessions[authority]
-            if (session != null) {
-                val connection = session.connection
-                if (connection.isConnected) {
-                    return session
-                } else {
-                    session.closeSafe()
-                    connection.closeSafe()
-                    sessions -= authority
+            val existing = sessions[authority]
+            if (existing != null) {
+                if (existing.connection.isConnected) {
+                    return existing
                 }
+                existing.closeSafe()
+                existing.connection.closeSafe()
+                sessions -= authority
             }
             val password = authenticator.getPassword(authority)
                 ?: throw ClientException("No password found for $authority")
             val hostAddress = resolveHostName(authority.host)
-            val connection = try {
-                client.connect(hostAddress, authority.port)
-            } catch (e: IOException) {
-                throw ClientException(e)
-            }
-            val authenticationContext =
-                AuthenticationContext(authority.username, password.toCharArray(), authority.domain)
-            session = try {
-                connection.authenticate(authenticationContext)
+            val session = try {
+                authenticate(client, authority, hostAddress, password)
             } catch (e: SMBRuntimeException) {
-                // We need to close the connection here, otherwise future authentications reusing it
-                // will receive an exception about no available credits.
-                connection.closeSafe()
-                throw ClientException(e)
-            // TODO: kotlinc: Type mismatch: inferred type is Session? but TypeVariable(V) was
-            //  expected
-            //}
-            }!!
+                if (e.isCredentialFailure()) {
+                    throw ClientException(e)
+                }
+                // Not a rejected account: the server may require an encrypted session.
+                try {
+                    authenticate(encryptedClient, authority, hostAddress, password)
+                } catch (e2: SMBRuntimeException) {
+                    throw ClientException(e2).apply { addSuppressed(e) }
+                }
+            }
             sessions[authority] = session
             return session
         }
+    }
+
+    @Throws(ClientException::class)
+    private fun authenticate(
+        client: SMBClient,
+        authority: Authority,
+        hostAddress: String,
+        password: String
+    ): Session {
+        val connection = try {
+            client.connect(hostAddress, authority.port)
+        } catch (e: IOException) {
+            throw ClientException(e)
+        }
+        val authenticationContext =
+            AuthenticationContext(authority.username, password.toCharArray(), authority.domain)
+        return try {
+            connection.authenticate(authenticationContext)!!
+        } catch (e: SMBRuntimeException) {
+            // Otherwise a later attempt that reuses this connection fails with no credits.
+            connection.closeSafe()
+            throw e
+        }
+    }
+
+    private fun SMBRuntimeException.isCredentialFailure(): Boolean =
+        hasStatus(
+            NtStatus.STATUS_LOGON_FAILURE,
+            NtStatus.STATUS_PASSWORD_EXPIRED,
+            NtStatus.STATUS_ACCOUNT_DISABLED,
+            NtStatus.STATUS_LOGON_TYPE_NOT_GRANTED
+        )
+
+    private fun SMBRuntimeException.hasStatus(vararg statuses: NtStatus): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is SMBApiException && current.status in statuses) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     @Throws(ClientException::class)
