@@ -338,10 +338,19 @@ class FileProvider : ContentProvider() {
             if (released) {
                 return
             }
-            try {
-                channel.close()
-            } catch (e: IOException) {
-                e.printStackTrace()
+            // A failed flush leaves the channel open so close can be retried.
+            // Dropping the channel here would pin the NFS session.
+            var attempt = 0
+            while (channel.isOpen && attempt < 3) {
+                try {
+                    channel.close()
+                } catch (e: IOException) {
+                    attempt++
+                    if (!channel.isOpen || attempt >= 3) {
+                        e.printStackTrace()
+                        break
+                    }
+                }
             }
             released = true
         }

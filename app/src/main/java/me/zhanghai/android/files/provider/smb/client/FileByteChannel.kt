@@ -64,6 +64,7 @@ class FileByteChannel(
         val bytesWritten = try {
             file.write(ByteBufferChunkProvider(source, position))
         } catch (e: SMBRuntimeException) {
+            source.position(sourcePosition)
             throw e.toIOException()
         }
         source.position(sourcePosition + bytesWritten)

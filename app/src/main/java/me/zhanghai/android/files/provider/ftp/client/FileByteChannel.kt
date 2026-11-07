@@ -46,24 +46,36 @@ class FileByteChannel(
 
     @Throws(IOException::class)
     override fun onWrite(position: Long, source: ByteBuffer) {
-        synchronized(clientLock) {
-            client.restartOffset = position
-            ByteBufferInputStream(source).use {
-                if (!client.storeFile(path, it)) {
-                    client.throwNegativeReplyCodeException()
+        val sourcePosition = source.position()
+        try {
+            synchronized(clientLock) {
+                client.restartOffset = position
+                ByteBufferInputStream(source).use {
+                    if (!client.storeFile(path, it)) {
+                        client.throwNegativeReplyCodeException()
+                    }
                 }
             }
+        } catch (e: IOException) {
+            source.position(sourcePosition)
+            throw e
         }
     }
 
     @Throws(IOException::class)
     override fun onAppend(source: ByteBuffer) {
-        synchronized(clientLock) {
-            ByteBufferInputStream(source).use {
-                if (!client.appendFile(path, it)) {
-                    client.throwNegativeReplyCodeException()
+        val sourcePosition = source.position()
+        try {
+            synchronized(clientLock) {
+                ByteBufferInputStream(source).use {
+                    if (!client.appendFile(path, it)) {
+                        client.throwNegativeReplyCodeException()
+                    }
                 }
             }
+        } catch (e: IOException) {
+            source.position(sourcePosition)
+            throw e
         }
     }
 

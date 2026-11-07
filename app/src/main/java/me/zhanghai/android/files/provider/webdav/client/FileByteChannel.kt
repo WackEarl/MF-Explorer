@@ -47,10 +47,26 @@ class FileByteChannel(
     @Throws(IOException::class)
     override fun onWrite(position: Long, source: ByteBuffer) {
         when (patchSupport) {
-            PatchSupport.APACHE ->
-                resource.putRangeCompat(source, position) {}
-            PatchSupport.SABRE ->
-                resource.patchCompat(source, position) {}
+            PatchSupport.APACHE -> {
+                val start = source.position()
+                try {
+                    resource.putRangeCompat(source, position) {}
+                    source.position(source.limit())
+                } catch (e: Exception) {
+                    source.position(start)
+                    throw e
+                }
+            }
+            PatchSupport.SABRE -> {
+                val start = source.position()
+                try {
+                    resource.patchCompat(source, position) {}
+                    source.position(source.limit())
+                } catch (e: Exception) {
+                    source.position(start)
+                    throw e
+                }
+            }
             PatchSupport.NONE -> {
                 if (position != nextSequentialWritePosition) {
                     throw IOException("Unsupported non-sequential write")
@@ -63,6 +79,7 @@ class FileByteChannel(
                 outputStream.write(
                     source.array(), source.arrayOffset() + source.position(), remaining
                 )
+                source.position(source.limit())
                 nextSequentialWritePosition += remaining
             }
         }

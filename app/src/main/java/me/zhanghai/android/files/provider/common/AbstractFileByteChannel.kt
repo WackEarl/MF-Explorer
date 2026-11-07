@@ -82,14 +82,18 @@ abstract class AbstractFileByteChannel(
             return 0
         }
         synchronized(ioLock) {
-            if (isAppend) {
-                onAppend(source)
-                position = onSize()
-            } else {
-                onWrite(position, source)
-                position += remaining - source.remaining()
+            try {
+                if (isAppend) {
+                    onAppend(source)
+                    position = onSize()
+                } else {
+                    onWrite(position, source)
+                    position += remaining - source.remaining()
+                }
+            } finally {
+                readBuffer.invalidate(position)
             }
-            return remaining
+            return remaining - source.remaining()
         }
     }
 
@@ -129,7 +133,9 @@ abstract class AbstractFileByteChannel(
     @Throws(IOException::class)
     final override fun size(): Long {
         ensureOpen()
-        return onSize()
+        synchronized(ioLock) {
+            return onSize()
+        }
     }
 
     @Throws(IOException::class)
@@ -143,6 +149,7 @@ abstract class AbstractFileByteChannel(
             }
             onTruncate(size)
             position = position.coerceAtMost(size)
+            readBuffer.invalidate(position)
         }
         return this
     }
@@ -181,13 +188,29 @@ abstract class AbstractFileByteChannel(
             if (!isOpen) {
                 return
             }
-            isOpen = false
-            synchronized(ioLock) {
-                readBuffer.closeSafe()
-                onClose()
+            var markClosed = true
+            try {
+                synchronized(ioLock) {
+                    readBuffer.closeSafe()
+                    onClose()
+                }
+            } catch (e: IOException) {
+                markClosed = onCloseFailed(e)
+                throw e
+            } finally {
+                if (markClosed) {
+                    isOpen = false
+                }
             }
         }
     }
+
+    /**
+     * @return false to leave the channel open so [close] can be retried.
+     * The default marks it closed, which is what providers that already released
+     * their handle need.
+     */
+    protected open fun onCloseFailed(exception: IOException): Boolean = true
 
     protected fun setClosed() {
         synchronized(closeLock) {
@@ -263,10 +286,14 @@ abstract class AbstractFileByteChannel(
             if (newBufferPosition in 0..buffer.limit()) {
                 buffer.position(newBufferPosition.toInt())
             } else {
-                cancelPendingRead()
-                buffer.limit(0)
-                bufferedPosition = newPosition
+                invalidate(newPosition)
             }
+        }
+
+        fun invalidate(newPosition: Long) {
+            cancelPendingRead()
+            buffer.limit(0)
+            bufferedPosition = newPosition
         }
 
         override fun close() {
