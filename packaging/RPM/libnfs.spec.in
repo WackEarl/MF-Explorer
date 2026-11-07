@@ -1,0 +1,534 @@
+Name: libnfs
+Summary: NFS client library
+Vendor: Ronnie Sahlberg
+Packager: ronniesahlberg@gmail.com
+Version: @VERSION@
+Release: 1
+Epoch: 0
+License: GNU LGPL version 2.1
+Group: System Environment/Libraries
+URL: http://www.github.com/sahlberg/libnfs
+
+Source: libnfs-%{version}.tar.gz
+
+Provides: lib = %{version}
+
+Prefix: /usr
+BuildRoot: %{_tmppath}/%{name}-%{version}-root
+
+%description
+LibNFS is a NFS client library
+
+#######################################################################
+
+
+
+%prep
+%setup -q
+# setup the init script and sysconfig file
+%setup -T -D -n libnfs-%{version} -q
+
+%build
+
+## check for ccache
+if ccache -h >/dev/null 2>&1 ; then
+	CC="ccache gcc"
+else
+	CC="gcc"
+fi
+
+export CC
+
+## always run autogen.sh
+aclocal
+autoheader
+autoconf
+libtoolize -c -f -i
+automake --add-missing
+
+
+CFLAGS="$RPM_OPT_FLAGS $EXTRA -O2 -g -D_GNU_SOURCE" %configure
+
+%install
+# Clean up in case there is trash left from a previous build
+rm -rf $RPM_BUILD_ROOT
+
+# Create the target build directory hierarchy
+
+make DESTDIR=$RPM_BUILD_ROOT install
+
+# Remove "*.old" files
+find $RPM_BUILD_ROOT -name "*.old" -exec rm -f {} \;
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+
+#######################################################################
+## Files section                                                     ##
+#######################################################################
+
+%files
+%defattr(-,root,root)
+
+%{_libdir}/libnfs.so*
+
+%package devel
+Summary: Development libraries for LibNFS
+Group: Development
+
+%description devel
+development libraries for LibNFS
+
+%files devel
+%defattr(-,root,root)
+%{_includedir}/nfsc/libnfs.h
+%{_includedir}/nfsc/libnfs-zdr.h
+%{_includedir}/nfsc/libnfs-raw.h
+%{_includedir}/nfsc/libnfs-raw-mount.h
+%{_includedir}/nfsc/libnfs-raw-nfs.h
+%{_includedir}/nfsc/libnfs-raw-nfs4.h
+%{_includedir}/nfsc/libnfs-raw-portmap.h
+%{_includedir}/nfsc/libnfs-raw-rquota.h
+%{_includedir}/nfsc/libnfs-raw-nlm.h
+%{_includedir}/nfsc/libnfs-raw-nsm.h
+%{_libdir}/libnfs.a
+%{_libdir}/libnfs.so*
+%{_libdir}/pkgconfig/libnfs.pc
+
+%package utils
+Summary: Utility programs for LibNFS
+Group: Applications/System
+
+%description utils
+Utility programs for LibNFS
+
+%files utils
+%defattr(-,root,root)
+%{_bindir}/nfs-cat
+%{_bindir}/nfs-cp
+%{_bindir}/nfs-ls
+%{_bindir}/nfs-stat
+%{_mandir}/man1/nfs-cat.1.gz
+%{_mandir}/man1/nfs-cp.1.gz
+%{_mandir}/man1/nfs-ls.1.gz
+
+%changelog
+* Sun Sep 20 2026 : Version 8.0.0
+- NFSv4.2 support. nfs_set_version(nfs, NFS_V4_2), or "version=4.2" in
+  the URL, selects the new dialect. It establishes a session and
+  sequences every COMPOUND through a slot table, claiming the slot as
+  the request goes onto the wire so that submission stays as unbounded
+  as it is on 4.0. LIBNFS_FEATURE_NFS4_2 says the API is present;
+  --disable-nfs4-2 or -DENABLE_NFS4_2=OFF drops the dialect for small
+  targets
+- New API: nfs_fallocate() and nfs_fallocate_async(), covering
+  allocate, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE and
+  FALLOC_FL_ZERO_RANGE, and nfs_lseek() with SEEK_HOLE and SEEK_DATA.
+  All are NFSv4.2 only and fail with -ENOTSUP on any other version
+- New raw operations: ALLOCATE, DEALLOCATE, SEEK, READ_PLUS and
+  WRITE_SAME in the XDR, plus nfs42_read_plus() and nfs42_write_same()
+- nfs-cp copies sparse files sparsely over NFSv4.2
+- SONAME bumped to 18. nfs_argop4 and nfs_resop4 grew the NFSv4.2 arms,
+  so this release is not ABI compatible with 7.x and dependent packages
+  must be rebuilt. No public function or structure was removed
+- New API: nfs4_stat64(), nfs4_lstat64() and nfs4_fstat64(), and their
+  async forms, return the raw utf8 owner and group strings alongside
+  the stat. An NFSv4 server may send a name rather than a numeric id,
+  which the old calls could only report as -1. Free them with
+  nfs4_free_stat64()
+- NFSv4: support named attributes, the hidden per-file attribute
+  directory Windows clients use for alternate data streams, via
+  nfs4_opendir_namedattr(), nfs4_open_namedattr() and
+  nfs4_remove_namedattr()
+- NFSv4: add the 4.1 and 4.2 status codes to the error tables, and map
+  a stale filehandle to ESTALE
+- NFSv4: retry a replay-safe DELAY asynchronously rather than failing
+  the call, with a bounded number of attempts
+- NFSv4: fix an 8 byte leak in nfs4_lseek_async(), reject an unknown
+  whence in lseek() instead of assuming SEEK_END, and stop
+  LOOKUP_FLAG_OPENATTR colliding with MUTEX_HELD
+- rpc: fix a self-deadlock when purging the outqueue, and look for a
+  reply in the waitpdu hash before scanning the outqueue
+- zdr: preserve the allocation alignment after the ownership header,
+  and skip the memcpy for empty byte payloads
+- Add a libFuzzer target for RPC reply decoding
+- Carries every fix in 7.0.2
+* Sat Sep 05 2026 : Version 7.0.2
+- Bugfix release, ABI compatible with 7.0.0 and 7.0.1. The public
+  headers are unchanged, so the SONAME stays at 17 and only the libtool
+  revision is bumped, 17.1.0 -> 17.2.0
+- rpc: deliver the payload of a zero-copy READ that arrived in record
+  fragments. Reassembly was fine, but the copy into the caller's iovec
+  was gated on the record having arrived whole, so a fragmented READ ran
+  the callback with success and a buffer of NUL bytes. Servers that
+  fragment, such as unfs3, which flushes its XDR buffer at 65532 bytes,
+  returned zero filled data for any read above that while directory
+  listings, which stay under the limit, worked. Also refuse a
+  reassembled record that declares more read data than it carries
+- NFS: decode the READDIRPLUS and NFSv4 READDIR entry lists iteratively.
+  Both still recursed once per entry with no depth bound, so a server
+  could exhaust the client stack with a single valid sized PDU
+- NFSv4: decode fattr4 according to the returned attrmask. The blob was
+  decoded as if it always held the full standard attribute set in order,
+  so a server returning fewer attributes than were asked for shifted
+  every later field and mode, uid, size and the timestamps came out as
+  neighbouring attributes
+- NFSv4: do not read the payload of a READ that failed. Every v4 pread
+  is a zero-copy read, so an error status left us reading past the
+  decoded compound and either looping on the error forever or desyncing
+  the record stream
+- NFSv4: chown the named file instead of its parent directory
+- NFSv4: bound the symlink component walk by the path rather than by the
+  number of results the server returned
+- NFSv4: give readdir the same cookie-advance guard as v3, so a reply
+  with no entries and eof=0, or one repeating the cookie we sent, no
+  longer loops forever
+- Chunk writes larger than the server's writemax instead of issuing a
+  single WRITE and returning short
+- rpc: reset the read cursor on disconnect. An application that called
+  rpc_disconnect() part way through a record and reconnected consumed
+  the new connection's first bytes as the tail of the old PDU
+- rpc: reset waitpdu_len when the wait queues are purged. With
+  max_waitpdu_len set, the stale count stalled writes permanently after
+  a disconnect
+- zdr: bounds check the ENCODE path of libnfs_zdr_opaque(), count the
+  alignment padding in the libnfs_zdr_bytes() ENCODE check, and correct
+  the length of the reply encode buffer, which was declared 4 bytes
+  longer than the encoder actually owned
+- krb5p: bound the wrapped length and the unwrapped header. The server's
+  length was not checked against the receive buffer and a token shorter
+  than 4 bytes underflowed the ZDR size to ~4GB
+- sync: keep the underlying error in the five wrappers that dropped it,
+  and do not overwrite the mount error with an empty RPC error
+- cmake and automake no longer install the utility manpages when the
+  utilities themselves are not built
+* Fri Aug 28 2026 : Version 7.0.1
+- Bugfix release, ABI compatible with 7.0.0
+- libnfs.h: move the UDP accessors and rpc_set_resiliency() inside
+  the extern "C" block. C++ callers declared them with C++ linkage
+  and could not link against the unmangled symbols the library
+  exports. rpc_set_resiliency() was also missing EXTERN and so was
+  not exported from the Windows DLL
+- NFSv4: give every context a unique client name. Two contexts created
+  in the same second shared an identity, so the server treated the
+  second SETCLIENTID as a client reboot and purged the state of the
+  first. Applications mounting more than one export only had the most
+  recently created context working
+- NFSv4: make the OPEN gate a semaphore instead of a mutex. It is
+  released from the RPC callback on the service thread, which a mutex
+  does not allow, so with multithreading enabled the gate jammed and
+  OPEN calls stopped being serialised
+- Fix nfs_read() not advancing the file offset for reads larger than
+  the servers readmax, so a read-until-EOF loop never terminated
+- Fix an endless loop in the NFSv3 mount code when scanning the export
+  list for submounts
+- Fix memory leaks in the mount path, in nfs4_open_readlink() and of a
+  connect still in flight when the context is disconnected
+- Report the real error from the RPC layer instead of an empty string
+  when queueing a command fails
+- Fix the arm32 build, which failed on -Werror=cast-align
+- RPC-with-TLS is now optional and properly probed for. Both build
+  systems check for gnutls >= 3.4.6 and for working kTLS and build
+  without TLS if either is missing. Use --enable-tls or
+  -DENABLE_TLS=ON to fail the configure instead, --disable-tls or
+  -DENABLE_TLS=OFF to never build it
+- cmake now installs the manpages. ENABLE_DOCUMENTATION only asks for
+  them to be regenerated from the docbook sources
+- Fix "make dist" to always ship a complete tree, and build the shared
+  server code as a libtool convenience library so out of tree builds
+  work
+* Sat Aug 08 2026 : Version 7.0.0
+- SONAME bumped to 17. struct rpc_stats grew, so this release is not
+  ABI compatible with 6.x and dependent packages must be rebuilt
+- Security: fix a remotely triggerable crash from a forged AUTH_GSS
+  reply verifier
+- Security: bound the ZDR array element count and string/opaque
+  padding so a short reply cannot drive a huge allocation or read
+  outside the receive buffer
+- Security: implement RPC record fragment reassembly
+- Security: fix several heap over-reads where a length delimited XDR
+  string was used as a NUL terminated C string
+- Security: fix a one byte overflow in nfs_readlink()
+- Security: fix an infinite readdir loop against a server that never
+  advances the cookie
+- Fix a PDU leak of ~14KB on every mount
+- New API: [p]readv[_async], nfs_readv, rpc_set_timeout is now public
+- New "readonly" URL argument, and mountport support in the URL
+- NFSv4: read rdev/nfs_dev, honour the server's readmax/writemax,
+  and fix O_EXCL handling on create
+- RPC: high/low priority send queue, eventfd based service thread
+  wakeups, PDU telemetry, and a 100MB maximum transfer size
+- TLS: fail mtls when credentials are unavailable rather than
+  silently downgrading, and support kernels without TLS_1_3_VERSION
+- New optional servers/ directory containing rpcbind, rpc.statd and
+  an NFSv3 server skeleton, all under the MIT license
+- portmapper v4 support, including GETADDRLIST
+- Many portability fixes for Windows/MSVC, macOS, PS2, arm32 and
+  riscv64, and the cmake build now builds the examples
+* Sat Dec 14 2024 : Version 6.0.2
+- Fix compile issue on 32 bit platforms
+- Fix windows build
+* Fri Dec 13 2024 : Version 6.0.1
+- Fix compile bug on MacOS
+- Add autotools support to enable tls
+* Wed Dec 11 2024 : Version 6.0.0
+- KRB5/i/p support
+- TLS support
+- READ3/4 Zero-Copy
+- New API that breaks some signatures. Check LIBNFS_API_V2
+* Sun Feb 11 2024 : Version 5.0.3
+- drop *BSD support from github workflows
+- workflow: indicate that the linux workflow also runs the tests
+- Add workflow to build PS2
+- Add workflow running make test
+- ps2 bonus: Remove old implementations
+- ps2: Fix linkage with a missing file
+- Fix ps2 warnings and remove read macros
+- update INSTALL build with cmake and debugging enable
+- Update waitpdu_len when a pdu times out.
+- ci: Build examples and run tests on Linux
+- Fix building examples/nfsclient-raw.c
+- Allow setting a limit on the number of commands in-flight.
+- Always close the socket.
+- Handle small reads for record marker field.
+- Reset state on reconnect.
+- Check return value from adjust_inbuf.
+- README: Document that new development has shifted to libnfs-next-gen branch
+- fix compiler warning
+- Patch to support NLM Share
+- rpc: re-add fragment handling when reading from socket.
+- change read_from_socket to use a state machine
+- Write multiple pdus at once.
+- Added NFS4.1 EXCHANGE_ID and BIND_CONN_TO_SESSION
+- Added poll_timeout parameter
+- Completed NFS 4.1 defintion of open_claim4
+- NFS3: we do not need to provide an alloc-hint to write3
+- Fix deprecation warnings on modern macOS
+- Restore Cygwin CI (official GH action from Cygwin maintainers).
+- Change Windows writev & readv polyfills to static inline.
+- Fix integer size for readdirs dircount/maxcount
+- Add OpenBSD back to the workflow
+- Add windows workflow and add missing readv/writev replacements to win32
+- Remove BSD from the github workflows.
+- Remove CYGWIN github workflow. The cygwin action is abandonware
+- Modify LD_PRELOAD toy doc
+- Add options to set dircount/maxcount for readdir()
+- compile fix for mac
+- write3: make sure we do not add too many iovectors
+- Change WRITE3 to become zero-copy usinf iovectors for the data.
+- Switch writing PDUs to the socket use iovectors.
+- Add CodeQL workflow for GitHub code scanning
+- github: switch openbsd to 7.0 and try again
+- github: switch OpenBSD workflow to use 7.2 instead of 6.9
+- multithreading.c: do not wake up immediately if there are no events to process
+- Reduced memory allocations.
+- Expose further configuration options
+- tests: disable test_8000 for now
+- rpm: fix building RPMs
+- rpc: fix use after free on init_context failure
+- tests: fix failure in 0201
+- rpc: only scan for tiemout out RPCs every second instead of every I/O
+- rpc: make it possible to tweak the number of lists we hash to for waitpdu
+- libnfs-sync: fail all pdus before returning error from wait_for_nfs_reply
+- cmake: update utils to be installed
+- socket: remove debugging printf
+- Deduplicate paths in CMakeLists.txt.
+- Add -no-undefined linker flag for shared library
+- Link shared library with ws2_32
+
+* Wed Aug 10 2022 : Version 5.0.2
+- Various small multithreading fixes
+- Add opaque pointer to service_proc to make it easier to build server apps.
+- BSD compile fix
+- OpenBSD support
+- fix double free in nfs3_pread_mcb() 
+* Tue Feb 1 2022 : Version 5.0.1
+- Fix non-pthread build
+* Fri Jan 28 2022 : Version 5.0.0
+- Multithread support for Linux and Windows
+- Fix NFS4 behavior of chmod/chown/utimes
+- Add marshalling / unmarshalling of various NFSv4.1 structures (but not 4.1 support)
+- PS3 support
+- PS2 EE support
+- Support escaped characters in the URL
+- Fix MINGW build
+* Wed Feb 13 2019 : Version 4.0.0
+- Fix the versioning in makerpms.sh
+- Fix some compile issues in the test programs.
+- NFSv3: skip commit on close if the file has not been written to.
+- Add nfs_umount() to NFSv3
+- Add nfs_statvfs64()
+- Fix invalid shift of pid_t when generating rpc->xid
+- Compile fixes for Mac OSX
+- Fix for dup2() on Windows
+- NFSv4 fix for directory handling
+- Improvements to configure/bulding
+* Sun Jun 24 2018 : Version 3.0.0
+ - NFSv4 support.
+ - lockf() support (NFSv4 only).
+ - fcntl() support for locking (NFSv4 only).
+ - Add CMake support.
+ - URL arguments to select NFS version.
+ - URL argument to set nfsport. This allows NFSv4 to work for
+ servers without portmapper support.
+ - URL argument to set he mount port.
+ - NFSv4: use getpwnam to map NFSv4 (Ganesha) when passing uid/gid
+ as a user/group name insead of as a uid/gid.
+ - Added nfs-fh: a simle utility to print the filehandle for a nfs file.
+ - Win32 build fixes.
+ - Add a new open2() function that takes a mode argument.
+ - Add a testsuite for libnfs.
+* Fri Jun 16 2017 : Version 2.0.0
+ - Add RPC/RAW layer support for NFSv4
+ - Add support for building RPC servers using libnfs
+ - Add support for setting RPC timeouts for all interfaces.
+ - Add O_NOFOLLOW to nfs_open()
+ - Add a new mkdir2 command that also takes a mode argument.
+ - Add a new readlink2 command that avoids having to preallocate the
+   output buffer.
+ - Build fixes for Mingw and Cygwin.
+ - Use SOCK_CLOEXEC for the sockets
+ - Make rpc_set{g|u}id() public
+ - Performance optimization: socket: Batch pdu read in rpc_read_from_socket
+ - Fix NULL pointer crash in nfs_link().
+ - Clamp read/write size for servers (Ganesha) that offer very large io sizes
+   instead of failing to connect to the export.
+ - Tell the server to commit all data to stable storage when we close files.
+ - Double free fix: dont call rpc_free_pdu() after rpc_queue_pdu() failure.
+ - Fix for memory leak in rpc_allocate_*().
+ - Fixes to build nfs-ls and nfs-cp on win32.
+ - Abort the mount process correctly if MOUNT/MNT returns error or is cancelled.
+ - Fix memory leak in error path in nfs_create_2_cb().
+ - Fix leak of rpc->inbuf if we destroy the context while we still have PDUs
+   in flight.
+* Sun Oct 9 2016 : Version 1.11.0
+ - Reduce the number of memory allocations in the ZDR layer.
+ - Check both seconds and nanoseconds field when validating dir cache.
+ - Invalidate the dir cache immediately if we do something that would cause
+   it to become stale, such as adding/removing objects from the cache.
+ - Add options to enable/disable dir caching.
+ - Discard readahead cache on [p]write and truncate.
+ - Android fixes
+ - Windows fixes
+ - Support timeouts for sync functions
+ - Add an internal pagecache
+ - Add nfs_rewinddir(), nfs_seekdir() and nfs_telldir()
+ - Fix crash in nfs_truncate()
+ - Fix segfault that can trigger if we rpc_disconnect() during the mount.
+ - Add support to bind to a specific interface (linux only)
+* Sun Jan 31 2016 : Version 1.10.0
+ - Fix a leak where we leaked one rdpe_cb_data structure on each open_dir()
+ - Make building the utils optional
+ - Android: the correct define is __ANDROID__ not ANDROID
+ - Win32: Use _U_ instead of ATTRIBURE((unused))
+ - Win32: Fix nfs_stat declaration for Win32
+ - Various fixes for mingw builds
+ - Make rpc->connect_cb a one shot callback and improve documentation
+ - Remove the FUSE module. It now lives in its own repo
+ - Fix POLLERR/POLLHUP handling to properly handle session failures and to
+   try to auto-reconnect
+* Sun Aug 2 2015 : Version 1.9.8
+ - Disable multithreading in fuse_nfs
+ - Add -Wall and -Werror compiler flags (and fix issues found by it)
+ - Add nfs-cat utility
+ - Switch to using nfs_[f]stat64 instead of the deprecated nfs_[f]stat call
+   in all examples
+ - If the server does not return any atttributes for entries in READDIRPLUS
+   then try to fetch them using lookup instead.
+ - Reconnection fixes
+ - Enforce the max pdu size and add sanity checks when reading PDUs from
+   the socket.
+ - Stop using ioctl(FIONREAD) to find out how many bytes to read, and treat
+   0 as an indication of a problem. Some applications call their POLLIN handlers
+   spuriosly even when there is no data to read, which breaks this check in
+   libnfs.
+ - Add basic support to do logging.
+* Mon Feb 9 2015 : Version 1.9.7
+ - Auto-traverse mounts. With this option (default to on) libnfs will
+   autodiscover and handle any nested submounts.
+ - Remove nfs_get_current_offset. Applications should use seek instead of this function.
+ - Add umask() support.
+ - Change set_tcp_sockopt() to be static.
+ - Android fix for nfs-ls
+ - Make S_IFLNK available on windows.
+ - Fix a use after free.
+ - Fix a bug where truncate() treated offset as 32bit.
+* Tue Nov 25 2014 : Version 1.9.6
+ - Add O_TRUNC support for nfs_create
+ - Handle OOM during create
+ - Return more stats fields as part of readdir since we get these for "free"
+   when we use READDIRPLUS
+ - Follow symlinks during path resolution
+ - Add lchown, lstat and lutimes
+ - Replace all [u_]quad types with [u]int types in our RPC layer
+ - Solaris build fixes
+* Sat Jul 19 2014 : Version 1.9.5
+ - Remove old ONC-RPC symbols
+* Wed Mar 19 2014 : Version 1.9.3
+ - Add O_TRUNC support to nfs_open()
+ - Add a simple but incomplete LD_PRELOAD tool
+ - Fixes for some memory leaks and C++ compile support
+ - Make ANDROID default uid/gid to 65534
+ - Allow the READDIRPLUS emulation to still work if some objects
+   in the direcotry can not be lookedup (NFSv4 ACL denying READ-ATTRIBUTES)
+ - Have libnfs retry any read/write operations where the server responds
+   with a short read/write. Some servers do this when they are overloaded?
+* Thu Jan 30 2014 : Version 1.9.2
+ - Remove chdir change. This needs more testing.
+* Tue Jan 28 2014 : Version 1.9.1
+ - Restore libnfs-raw-*.h to make install
+* Mon Jan 27 2014 : Version 1.9
+ - Use _stat64 on windows so file sizes become 64bit always.
+ - Increase default marshalling buffer so we can marshall large PDUs.
+ - RPC layer support for NFSv2
+ - Win32 updates and fixes
+ - Add URL parsing functions and URL argument support.
+ - New utility: nfs-io
+ - nfs-ls enhancements
+ - RPC layer support for NSM
+ - Add example FUSE filesystem.
+ - Minor fixes.
+* Wed Oct 30 2013 : Version 1.8
+ - Fix nasty memory leak in read_from_socket
+ - minor updates
+* Sun Oct 20 2013 : Version 1.7
+ - Allow nested eventloops so that a sync function can be called from a callback.
+ - Fix a bug in unmarshalling a uint64.
+ - Add PATHCONF support.
+ - WIN32/64 updates
+ - AROS updates
+* Mon May 27 2013 : Version 1.6
+ - AROS/Amiga support
+ - Chose better initial xid value to reduce the probability for collissions.
+ - Set default group to getgid() instead of -1. This fixes an interoperability
+ problem with 3.9 linux knfsd.
+* Mon Dec 3 2012 : Version 1.5
+ - Switch to using our own RPC/XDR replacement ZDR instead of relying on the
+   system RPC/TIRPC libraries. This allows using libnfs on platforms that lack
+   RPC libraries completely.
+ - Add support for Android.
+* Sun Nov 25 2012 : Version 1.4
+ - Add trackig of freed context and assert on using a context after it has been
+   freed.
+ - Windows x64 support and fixes.
+ - Switch to using our own version of xdr_int64() since the one in libtirpc
+   crashes on some platforms.
+ - Fix memory leak in an error path for addrinfo.
+ - Fix bug dereferencing a null pointer in the mount callback on error.
+* Sat Mar 3 2012 : Version 1.3
+ - add set/unset to portmapper
+ - add mount v1
+ - try to rotate to find a free port better
+ - minor fixes
+* Tue Dec 6 2011 : Version 1.2
+ - Add support for MKNOD
+ - Add support for HaneWin NFS server
+ - Change all [s]size_t offset_t to be 64bit clean scalars
+* Sun Nov 27 2011 : Version 1.1
+ - Fix definition and use of AUTH
+ - Only call the "connect" callback if non-NULL
+ - make sure the callback for connect is only invoked once for the sync api
+ - make file offset bits 64 bits always
+* Sun Jul 31 2011 : Version 1.0
+ - Initial version
