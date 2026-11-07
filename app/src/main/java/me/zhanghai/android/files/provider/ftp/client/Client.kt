@@ -80,6 +80,9 @@ object Client {
         val password = authenticator.getPassword(authority)
             ?: throw IOException("No password found for $authority")
         return authority.protocol.createClient().apply {
+            if (this is FTPSClient) {
+                isEndpointCheckingEnabled = true
+            }
             configure(FTPClientConfig(""))
             // This has to be set before connect().
             controlEncoding = authority.encoding
