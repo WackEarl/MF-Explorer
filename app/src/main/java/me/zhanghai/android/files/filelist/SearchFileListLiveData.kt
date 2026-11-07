@@ -15,8 +15,6 @@ import me.zhanghai.android.files.util.Failure
 import me.zhanghai.android.files.util.Loading
 import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
-import me.zhanghai.android.files.util.valueCompat
-import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 
@@ -32,7 +30,7 @@ class SearchFileListLiveData(
 
     fun loadValue() {
         future?.cancel(true)
-        value = Loading(emptyList())
+        value = Loading(null)
         future = (AsyncTask.THREAD_POOL_EXECUTOR as ExecutorService).submit<Unit> {
             val fileList = mutableListOf<FileItem>()
             try {
@@ -40,24 +38,28 @@ class SearchFileListLiveData(
                     for (path in paths) {
                         val fileItem = try {
                             path.loadFileItem()
-                        } catch (e: IOException) {
+                        } catch (e: Exception) {
                             e.printStackTrace()
-                            // TODO: Support file without information.
                             continue
                         }
                         fileList.add(fileItem)
+                        postValue(Loading(fileList.toList()))
                     }
-                    postValue(Loading(fileList.toList()))
                 }
-                postValue(Success(fileList))
+                postValue(Success(fileList.toList()))
             } catch (e: Exception) {
-                // TODO: Retrieval of previous value is racy.
-                postValue(Failure(valueCompat.value, e))
+                postValue(Failure(value?.value ?: fileList.toList(), e))
             }
         }
     }
 
+    private var closed = false
+
     override fun close() {
+        if (closed) {
+            return
+        }
+        closed = true
         future?.cancel(true)
     }
 
