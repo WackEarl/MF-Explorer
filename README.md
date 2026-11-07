@@ -2,7 +2,7 @@
 
 A fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by Hai Zhang. The package id is unchanged, so this build updates an existing install.
 
-- Pipelined NFSv3 reads on one connection
+- NFSv3, with pipelined reads
 - Folder tabs that survive a restart
 - A disk cache for remote images
 - File jobs in the toolbar
@@ -23,7 +23,8 @@ A fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by Hai Zha
 - Breadcrumbs: Navigate in the filesystem with ease.
 - Root support: View and manage files with root access.
 - Archive support: View, extract and create common compressed files.
-- NAS support: View and manage files on FTP, SFTP, SMB and WebDAV servers.
+- NAS support: View and manage files on FTP, SFTP, SMB, WebDAV and NFS servers.
+- Folder tabs: Keep several directories open, and restore them after a restart.
 - Themes: Customizable UI colors, plus night mode with optional true black.
 - Linux-aware: Like [Nautilus](https://apps.gnome.org/Nautilus/), knows symbolic links, file permissions and SELinux context.
 - Robust: Uses Linux system calls under the hood, not yet another [`ls` parser](https://news.ycombinator.com/item?id=7994720).

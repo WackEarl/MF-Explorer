@@ -692,7 +692,7 @@
     <string name="settings_cache_remote_files_on_disk_summary">Miniaturansichten bleiben so oder so im Arbeitsspeicher. Aus: keine Dateikopie, bereits gespeicherte Kopien werden gelöscht</string>
 
     <string name="about_title">Über</string>
-    <string name="about_fork_summary">Ein Fork von Material Files. Schnellere NFS-Lesevorgänge, Tabs über den Neustart hinweg, ein Cache für entfernte Bilder und Dateivorgänge in der Leiste.</string>
+    <string name="about_fork_summary">Ein Fork von Material Files. NFSv3 mit Pipeline-Lesevorgängen, Ordner-Tabs, die einen Neustart überstehen, ein Cache für entfernte Bilder und Dateivorgänge in der Leiste.</string>
     <string name="about_version_title">Version</string>
     <string name="about_github_title">Auf GitHub anzeigen</string>
     <string name="about_licenses_title">Lizenzen</string>
