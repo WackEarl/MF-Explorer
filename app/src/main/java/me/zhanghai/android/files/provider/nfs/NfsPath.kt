@@ -22,6 +22,7 @@ import me.zhanghai.android.files.provider.common.UriAuthority
 import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.nfs.client.Authority
 import me.zhanghai.android.files.provider.nfs.client.Client
+import me.zhanghai.android.files.provider.nfs.client.NfsStat
 import me.zhanghai.android.files.util.readParcelable
 import java.io.File
 import java.io.IOException
@@ -103,6 +104,20 @@ internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path {
 
     override val remoteBytes: ByteArray
         get() = toByteString().toBytes()
+
+    /** Attributes from the directory listing. Consumed by the first no-follow stat. */
+    @Volatile
+    private var listedStat: NfsStat? = null
+
+    internal fun cacheListedStat(stat: NfsStat) {
+        listedStat = stat
+    }
+
+    internal fun takeListedStat(): NfsStat? {
+        val stat = listedStat ?: return null
+        listedStat = null
+        return stat
+    }
 
     private constructor(source: Parcel) : super(source) {
         fileSystem = source.readParcelable()!!

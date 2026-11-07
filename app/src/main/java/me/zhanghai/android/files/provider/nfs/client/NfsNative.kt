@@ -14,6 +14,9 @@ internal object NfsNative {
 
     external fun getError(context: Long): String
 
+    /** False when the context has no TCP session. A following RPC would block. */
+    external fun sessionUp(context: Long): Boolean
+
     external fun create(uid: Int, gid: Int, timeoutMs: Int): Long
 
     external fun destroy(context: Long)
@@ -50,7 +53,12 @@ internal object NfsNative {
 
     external fun ftruncate(context: Long, file: Long, size: Long): Int
 
-    external fun list(context: Long, path: ByteArray, out: ArrayList<ByteArray>): Int
+    external fun list(
+        context: Long,
+        path: ByteArray,
+        names: ArrayList<ByteArray>,
+        stats: ArrayList<LongArray>
+    ): Int
 
     external fun stat(context: Long, path: ByteArray, noFollow: Boolean): LongArray?
 

@@ -95,19 +95,101 @@ internal object Client {
         }
     }
 
-    private inline fun <R> use(authority: Authority, block: (Mount) -> R): R {
+    /**
+     * @param replay run [block] once more after a dead session was dropped.
+     * Only for calls that are safe to repeat. A retried mkdir, unlink, rename
+     * or close would apply twice or use a file handle from the destroyed
+     * context.
+     */
+    private inline fun <R> use(
+        authority: Authority,
+        replay: Boolean = false,
+        block: (Mount) -> R
+    ): R {
         checkThread()
+        var transportRetry = true
+        var firstFailure: ClientException? = null
         while (true) {
-            val mount = mount(authority)
+            val mount = try {
+                mount(authority)
+            } catch (e: ClientException) {
+                firstFailure?.let { e.addSuppressed(it) }
+                throw e
+            }
             mount.lock.lock()
             try {
-                if (mount.alive) {
+                if (!mount.alive) {
+                    continue
+                }
+                // An open file holds an nfsfh from this context. Replaying the
+                // call on a fresh mount would use that pointer against a
+                // different context. libnfs reconnects the socket in place for
+                // that case; here we only rebuild when nothing is open.
+                val canRemount = mount.files == 0
+                try {
+                    mount.ensureSession()
                     return block(mount)
+                } catch (e: ClientException) {
+                    firstFailure?.let { e.addSuppressed(it) }
+                    if (transportRetry && canRemount && e.isTransportFailure()) {
+                        transportRetry = false
+                        firstFailure = e
+                        retireLocked(mount)
+                        if (replay) {
+                            continue
+                        }
+                    }
+                    throw e
                 }
             } finally {
                 mount.lock.unlock()
                 reap(mount)
             }
+        }
+    }
+
+    /**
+     * Drops a context whose TCP session died. [Mount.lock] must be held.
+     * The next [mount] opens a new one.
+     */
+    private fun retireLocked(mount: Mount) {
+        mount.alive = false
+        synchronized(mounts) {
+            if (mounts[mount.authority] === mount) {
+                mounts.remove(mount.authority)
+            }
+        }
+        val context = mount.context
+        mount.context = 0L
+        if (context != 0L) {
+            NfsNative.destroy(context)
+        }
+    }
+
+    /**
+     * A file handle is only valid on the context that opened it. Never mounts
+     * a replacement: that would run the handle against a new context.
+     */
+    private inline fun <R> useExisting(
+        authority: Authority,
+        requireSession: Boolean = true,
+        block: (Mount) -> R
+    ): R {
+        checkThread()
+        val mount = synchronized(mounts) { mounts[authority] }
+            ?: throw exception(OsConstants.EIO, "NFS connection closed")
+        mount.lock.lock()
+        try {
+            if (!mount.alive || mount.context == 0L) {
+                throw exception(OsConstants.EIO, "NFS connection closed")
+            }
+            if (requireSession) {
+                mount.ensureSession()
+            }
+            return block(mount)
+        } finally {
+            mount.lock.unlock()
+            reap(mount)
         }
     }
 
@@ -143,9 +225,35 @@ internal object Client {
         }
     }
 
+    private fun Mount.ensureSession() {
+        if (context == 0L || !NfsNative.sessionUp(context)) {
+            throw exception(OsConstants.EIO, "nfs_service failed")
+        }
+    }
+
     private fun exception(errno: Int, message: String): ClientException {
         val err = if (errno != 0) errno else OsConstants.EIO
         return ClientException(err, message.takeIf { it.isNotEmpty() } ?: "NFS error $err")
+    }
+
+    private fun ClientException.isTransportFailure(): Boolean {
+        val text = message ?: return false
+        // Protocol errors quote the path ("NFS: Lookup of <path> failed...").
+        // A name like "reconnect" must not drop the session.
+        if (text.contains("NFS:") || text.contains("NFS3ERR")) {
+            return false
+        }
+        return text.contains("nfs_service failed") ||
+            text.contains("Poll failed") ||
+            text.contains("Socket closed") ||
+            text.contains("Socket failed") ||
+            text.contains("not connected") ||
+            text.contains("Failed to reconnect") ||
+            text.contains("reconnect failed") ||
+            text.contains("command timed out") ||
+            text.contains("Command timed out") ||
+            text.contains("Timeout reached") ||
+            text.contains("socket error")
     }
 
     private fun error(context: Long, file: String): ClientException {
@@ -161,18 +269,29 @@ internal object Client {
     }
 
     fun list(directory: NfsPath): List<NfsPath> =
-        use(directory.authority) { mount ->
+        use(directory.authority, replay = true) { mount ->
             val names = ArrayList<ByteArray>()
+            val stats = ArrayList<LongArray>()
             check(
                 mount.context,
-                NfsNative.list(mount.context, directory.remoteBytes, names),
+                NfsNative.list(mount.context, directory.remoteBytes, names, stats),
                 directory.toString()
             )
-            names.map { directory.resolve(ByteString(it)) }
+            names.mapIndexed { index, name ->
+                val child = directory.resolve(ByteString(name))
+                val values = stats.getOrNull(index)
+                if (values != null && values.size >= 11 && values[0] == 0L && values[1] != 0L) {
+                    child.cacheListedStat(NfsStat(values))
+                }
+                child
+            }
         }
 
-    fun stat(path: Path, noFollowLinks: Boolean): NfsStat =
-        use(path.authority) { mount ->
+    fun stat(path: Path, noFollowLinks: Boolean): NfsStat {
+        if (noFollowLinks && path is NfsPath) {
+            path.takeListedStat()?.let { return it }
+        }
+        return use(path.authority, replay = true) { mount ->
             val values = NfsNative.stat(mount.context, path.remoteBytes, noFollowLinks)
                 ?: throw error(mount.context, "")
             if (values[0] < 0) {
@@ -180,6 +299,7 @@ internal object Client {
             }
             NfsStat(values)
         }
+    }
 
     fun mkdir(path: NfsPath, mode: Int) {
         use(path.authority) { mount ->
@@ -214,28 +334,28 @@ internal object Client {
     }
 
     fun readLink(path: NfsPath): ByteString =
-        use(path.authority) { mount ->
+        use(path.authority, replay = true) { mount ->
             val out = arrayOfNulls<ByteArray>(1)
             check(mount.context, NfsNative.readlink(mount.context, path.remoteBytes, out), path.toString())
             ByteString(out[0]!!)
         }
 
     fun chmod(path: Path, mode: Int) {
-        use(path.authority) { mount ->
+        use(path.authority, replay = true) { mount ->
             check(mount.context, NfsNative.chmod(mount.context, path.remoteBytes, mode), "")
         }
         LocalWatchService.onEntryModified(path as java8.nio.file.Path)
     }
 
     fun chown(path: Path, uid: Int, gid: Int) {
-        use(path.authority) { mount ->
+        use(path.authority, replay = true) { mount ->
             check(mount.context, NfsNative.chown(mount.context, path.remoteBytes, uid, gid), "")
         }
         LocalWatchService.onEntryModified(path as java8.nio.file.Path)
     }
 
     fun utimes(path: Path, atimeSec: Long, atimeNsec: Int, mtimeSec: Long, mtimeNsec: Int) {
-        use(path.authority) { mount ->
+        use(path.authority, replay = true) { mount ->
             check(
                 mount.context,
                 NfsNative.utimes(
@@ -256,7 +376,7 @@ internal object Client {
         if (write) {
             mode = mode or W_OK
         }
-        use(path.authority) { mount ->
+        use(path.authority, replay = true) { mount ->
             check(mount.context, NfsNative.access(mount.context, path.remoteBytes, mode), path.toString())
         }
     }
@@ -268,7 +388,12 @@ internal object Client {
         append: Boolean,
         deleteOnClose: Boolean
     ): SeekableByteChannel {
-        val file = use(path.authority) { mount ->
+        val file = use(
+            path.authority,
+            // A lost reply did not hand back a handle. O_EXCL is the exception:
+            // the create may have landed and a retry would turn it into EEXIST.
+            replay = flags and OsConstants.O_EXCL == 0
+        ) { mount ->
             val opened = NfsNative.open(mount.context, path.remoteBytes, flags, mode)
             if (opened == 0L) {
                 throw error(mount.context, path.toString())
@@ -283,33 +408,77 @@ internal object Client {
     }
 
     internal fun pread(path: Path, file: Long, buffer: ByteArray, offset: Long): Int =
-        use(path.authority) { mount ->
+        useExisting(path.authority) { mount ->
             val rc = NfsNative.pread(mount.context, file, buffer, buffer.size, offset)
             check(mount.context, rc, "")
             rc
         }
 
     internal fun pwrite(path: Path, file: Long, buffer: ByteArray, offset: Long): Int =
-        use(path.authority) { mount ->
-            val rc = NfsNative.pwrite(mount.context, file, buffer, buffer.size, offset)
-            check(mount.context, rc, "")
-            rc
+        useExisting(path.authority) { mount ->
+            writeAt(mount, file, buffer, offset)
         }
 
+    /** Size and write share one lock so a second append cannot land in between. */
+    internal fun append(path: Path, file: Long, buffer: ByteArray): Int =
+        useExisting(path.authority) { mount ->
+            val values = NfsNative.fstat(mount.context, file) ?: throw error(mount.context, "")
+            if (values[0] < 0) {
+                throw error(mount.context, "")
+            }
+            writeAt(mount, file, buffer, NfsStat(values).size)
+        }
+
+    /**
+     * Writes [buffer] at [offset], retrying a short count under the same mount lock.
+     * A later failure returns how many bytes were already committed so the caller can
+     * keep only the tail. Append must not fstat again: the prefix is already in the file.
+     */
+    private fun writeAt(mount: Mount, file: Long, buffer: ByteArray, offset: Long): Int {
+        var off = offset
+        var pending = buffer
+        var done = 0
+        while (pending.isNotEmpty()) {
+            val rc = try {
+                val n = NfsNative.pwrite(mount.context, file, pending, pending.size, off)
+                check(mount.context, n, "")
+                n
+            } catch (e: ClientException) {
+                if (done > 0) {
+                    return done
+                }
+                throw e
+            }
+            if (rc <= 0) {
+                if (done > 0) {
+                    return done
+                }
+                throw exception(OsConstants.EIO, "Short NFS write")
+            }
+            done += rc
+            if (rc >= pending.size) {
+                break
+            }
+            off += rc
+            pending = pending.copyOfRange(rc, pending.size)
+        }
+        return done
+    }
+
     internal fun fsync(path: Path, file: Long) {
-        use(path.authority) { mount ->
+        useExisting(path.authority) { mount ->
             check(mount.context, NfsNative.fsync(mount.context, file), "")
         }
     }
 
     internal fun ftruncate(path: Path, file: Long, size: Long) {
-        use(path.authority) { mount ->
+        useExisting(path.authority) { mount ->
             check(mount.context, NfsNative.ftruncate(mount.context, file, size), "")
         }
     }
 
     internal fun fstatSize(path: Path, file: Long): Long =
-        use(path.authority) { mount ->
+        useExisting(path.authority) { mount ->
             val values = NfsNative.fstat(mount.context, file) ?: throw error(mount.context, "")
             if (values[0] < 0) {
                 throw error(mount.context, "")
@@ -318,7 +487,7 @@ internal object Client {
         }
 
     internal fun closeFile(path: Path, file: Long, deleteOnClose: Boolean) {
-        use(path.authority) { mount ->
+        useExisting(path.authority, requireSession = false) { mount ->
             val closeRc = NfsNative.closeFile(mount.context, file)
             val closeErrno = NfsNative.takeErrno()
             val closeMessage = NfsNative.getError(mount.context)

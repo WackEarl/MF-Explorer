@@ -106,7 +106,9 @@ object NfsFileSystemProvider : FileSystemProvider(), PathObservableProvider, Sea
 
     private val URI.nfsAuthority: Authority
         get() {
-            val host = host ?: throw IllegalArgumentException("URI must have a host")
+            val host = Authority.normalizeHost(
+                host ?: throw IllegalArgumentException("URI must have a host")
+            )
             val nfsPort = if (port != -1) port else Authority.PORTMAPPER
             val query = decodedQueryByteString?.toString()
                 ?: throw IllegalArgumentException("URI must have an export")
