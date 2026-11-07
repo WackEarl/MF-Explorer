@@ -66,6 +66,39 @@ class FileListViewModel : ViewModel() {
         }
     }
 
+    fun restoreTabs(paths: List<Path>, selectedIndex: Int) {
+        if (paths.isEmpty() || tabs.isNotEmpty()) {
+            return
+        }
+        val limited = paths.take(MAX_TABS)
+        for (path in limited) {
+            val tab = FileTab(nextTabId++)
+            tab.trailLiveData.resetTo(path)
+            tabs.add(tab)
+        }
+        activeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
+        rebind()
+    }
+
+    fun focusPath(path: Path) {
+        val existing = tabs.indexOfFirst { it.trailLiveData.value?.currentPath == path }
+        if (existing >= 0) {
+            selectTab(tabs[existing].id, null)
+            return
+        }
+        if (!openTab(path, null)) {
+            resetTo(path)
+        }
+    }
+
+    fun tabPath(id: Long): Path? {
+        val index = tabs.indexOfFirst { it.id == id }
+        if (index < 0) {
+            return null
+        }
+        return tabs[index].trailLiveData.value?.currentPath
+    }
+
     fun navigateUp(): Boolean {
         if (!active.trailLiveData.navigateUp()) {
             return false

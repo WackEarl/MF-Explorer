@@ -15,6 +15,7 @@ import me.zhanghai.android.files.compat.EnvironmentCompat2
 import me.zhanghai.android.files.filelist.FileSortOptions
 import me.zhanghai.android.files.filelist.FileViewType
 import me.zhanghai.android.files.filelist.OpenApkDefaultAction
+import me.zhanghai.android.files.filelist.OpenTabs
 import me.zhanghai.android.files.navigation.BookmarkDirectory
 import me.zhanghai.android.files.navigation.StandardDirectorySettings
 import me.zhanghai.android.files.provider.root.RootStrategy
@@ -38,6 +39,9 @@ object Settings {
             @Suppress("DEPRECATION")
             Paths.get(Environment.getExternalStorageDirectory().absolutePath)
         )
+
+    val FILE_LIST_OPEN_TABS: SettingLiveData<OpenTabs?> =
+        ParcelValueSettingLiveData(R.string.pref_key_file_list_open_tabs, null)
 
     val FILE_LIST_PERSISTENT_DRAWER_OPEN: SettingLiveData<Boolean> =
         BooleanSettingLiveData(

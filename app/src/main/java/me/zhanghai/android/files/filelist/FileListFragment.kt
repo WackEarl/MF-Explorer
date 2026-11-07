@@ -357,9 +357,20 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             if (path == null) {
                 path = Settings.FILE_LIST_DEFAULT_DIRECTORY.valueCompat
             }
-            viewModel.resetTo(path)
             if (pickOptions != null) {
+                viewModel.resetTo(path)
                 viewModel.pickOptions = pickOptions
+            } else {
+                val saved = Settings.FILE_LIST_OPEN_TABS.value
+                val explicitPath = path.takeIf { argsPath != null || intent.action == ACTION_VIEW_DOWNLOADS }
+                if (saved != null && saved.paths.isNotEmpty()) {
+                    viewModel.restoreTabs(saved.paths, saved.selectedIndex)
+                    if (explicitPath != null) {
+                        viewModel.focusPath(explicitPath)
+                    }
+                } else {
+                    viewModel.resetTo(path)
+                }
             }
         }
         viewModel.currentPathLiveData.observe(viewLifecycleOwner) { onCurrentPathChanged(it) }
@@ -373,6 +384,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         viewModel.tabsLiveData.observe(viewLifecycleOwner) {
             upCallback.isEnabled = viewModel.canNavigateUpBreadcrumb || viewModel.canCloseTab
             onTabsChanged(it)
+            if (viewModel.pickOptions == null && it.paths.isNotEmpty()) {
+                Settings.FILE_LIST_OPEN_TABS.putValue(OpenTabs(it.paths, it.selectedIndex))
+            }
+        }
+        Settings.BOOKMARK_DIRECTORIES.observe(viewLifecycleOwner) {
+            viewModel.tabsLiveData.value?.let { onTabsChanged(it) }
         }
         viewModel.viewTypeLiveData.observe(viewLifecycleOwner) { onViewTypeChanged(it) }
         // Live data only calls observeForever() on its sources when it is active, so we have to
@@ -561,7 +578,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         } finally {
             updatingTabs = false
         }
-        binding.tabBarLayout.isVisible = viewModel.pickOptions == null
+        updateTabBarVisibility()
+    }
+
+    private fun updateTabBarVisibility() {
+        val count = viewModel.tabsLiveData.value?.ids?.size ?: 0
+        binding.tabBarLayout.isVisible = viewModel.pickOptions == null && count > 1
     }
 
     private fun createTabView(id: Long, title: String, showClose: Boolean): View {
@@ -573,10 +595,19 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 syncSearchView()
             }
         }
+        tabBinding.root.setOnLongClickListener {
+            viewModel.tabPath(id)?.let { addBookmark(it) }
+            true
+        }
         return tabBinding.root
     }
 
     private fun tabTitle(path: Path): String {
+        Settings.BOOKMARK_DIRECTORIES.valueCompat
+            .firstOrNull { it.path == path }
+            ?.customName
+            ?.takeIfNotEmpty()
+            ?.let { return it }
         val root = NavigationRootMapLiveData.value?.get(path)
         return root?.getName(requireContext()) ?: path.name
     }
@@ -982,7 +1013,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             }
         }
         requireActivity().title = title
-        binding.tabBarLayout.isVisible = pickOptions == null
+        updateTabBarVisibility()
         binding.breadcrumbLayout.openInNewTabEnabled = pickOptions == null
         updateNewTabMenuItem()
         updateSelectAllMenuItem()
@@ -1577,7 +1608,10 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun addBookmark(path: Path) {
-        BookmarkDirectories.add(BookmarkDirectory(null, path))
+        val alreadyAdded = Settings.BOOKMARK_DIRECTORIES.valueCompat.any { it.path == path }
+        if (!alreadyAdded) {
+            BookmarkDirectories.add(BookmarkDirectory(null, path))
+        }
         showToast(R.string.file_add_bookmark_success)
     }
 
