@@ -822,8 +822,8 @@
     <string name="settings_show_pdf_thumbnail_pre_28_title">Show thumbnail for PDF documents</string>
     <string name="settings_show_pdf_thumbnail_pre_28_summary">Might make the app unstable on older versions of Android</string>
     <string name="settings_read_remote_files_for_thumbnail_title">Read remote files for thumbnail</string>
-    <string name="settings_cache_remote_files_on_disk_title">Store remote thumbnails on disk</string>
-    <string name="settings_cache_remote_files_on_disk_summary">Thumbnails stay in memory either way. Off: remote images are not written to the disk cache, and the whole thumbnail disk cache is deleted</string>
+    <string name="settings_cache_remote_files_on_disk_title">Keep thumbnails of remote files</string>
+    <string name="settings_cache_remote_files_on_disk_summary">Off deletes the thumbnail cache. They stay in memory either way</string>
     <string name="settings_transfer_title">Settings file</string>
     <string name="settings_export_title">Export</string>
     <string name="settings_export_summary">Writes settings, servers, tabs and folder view to a file</string>

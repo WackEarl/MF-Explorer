@@ -688,8 +688,8 @@
     <string name="settings_show_pdf_thumbnail_pre_28_title">Miniaturansicht für PDF-Dateien anzeigen</string>
     <string name="settings_show_pdf_thumbnail_pre_28_summary">Kann die App auf älteren Versionen von Android instabil machen</string>
     <string name="settings_read_remote_files_for_thumbnail_title">Remote-Dateien für Miniaturansichten lesen</string>
-    <string name="settings_cache_remote_files_on_disk_title">Vorschaubilder entfernter Dateien auf der Platte speichern</string>
-    <string name="settings_cache_remote_files_on_disk_summary">Die Vorschau bleibt so oder so im Arbeitsspeicher. Aus: entfernte Bilder landen nicht im Platten-Cache, und der ganze Vorschaubild-Cache wird gelöscht</string>
+    <string name="settings_cache_remote_files_on_disk_title">Miniaturansichten von Remote-Dateien behalten</string>
+    <string name="settings_cache_remote_files_on_disk_summary">Aus löscht den Cache. Im Arbeitsspeicher bleiben sie</string>
     <string name="settings_transfer_title">Einstellungsdatei</string>
     <string name="settings_export_title">Exportieren</string>
     <string name="settings_export_summary">Schreibt Einstellungen, Server, Tabs und Ordneransicht in eine Datei</string>
