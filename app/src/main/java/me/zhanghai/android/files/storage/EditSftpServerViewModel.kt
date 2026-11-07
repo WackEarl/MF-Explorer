@@ -16,6 +16,7 @@ import kotlinx.coroutines.runInterruptible
 import me.zhanghai.android.files.provider.common.newDirectoryStream
 import me.zhanghai.android.files.provider.common.readAllBytes
 import me.zhanghai.android.files.provider.common.size
+import me.zhanghai.android.files.provider.sftp.client.HostKeys
 import me.zhanghai.android.files.util.ActionState
 import me.zhanghai.android.files.util.isFinished
 import me.zhanghai.android.files.util.isReady
@@ -62,6 +63,7 @@ class EditSftpServerViewModel : ViewModel() {
             _connectState.value = ActionState.Running(server)
             _connectState.value = try {
                 runInterruptible(Dispatchers.IO) {
+                    HostKeys.forget(server.authority.host, server.authority.port)
                     SftpServerAuthenticator.addTransientServer(server)
                     try {
                         val path = server.path

@@ -25,6 +25,7 @@ import me.zhanghai.android.files.databinding.EditSftpServerFragmentBinding
 import me.zhanghai.android.files.file.MimeType
 import me.zhanghai.android.files.filelist.FileListActivity
 import me.zhanghai.android.files.provider.sftp.client.Authority
+import me.zhanghai.android.files.provider.sftp.client.HostKeys
 import me.zhanghai.android.files.provider.sftp.client.PasswordAuthentication
 import me.zhanghai.android.files.provider.sftp.client.PublicKeyAuthentication
 import me.zhanghai.android.files.ui.UnfilteredArrayAdapter
@@ -237,6 +238,7 @@ class EditSftpServerFragment : Fragment() {
 
     private fun saveOrAdd() {
         val server = getServerOrSetError() ?: return
+        HostKeys.forget(server.authority.host, server.authority.port)
         Storages.addOrReplace(server)
         finish()
     }
