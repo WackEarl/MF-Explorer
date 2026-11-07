@@ -181,4 +181,10 @@ object Settings {
             R.string.pref_key_read_remote_files_for_thumbnail,
             R.bool.pref_default_value_read_remote_files_for_thumbnail
         )
+
+    val CACHE_REMOTE_FILES_ON_DISK: SettingLiveData<Boolean> =
+        BooleanSettingLiveData(
+            R.string.pref_key_cache_remote_files_on_disk,
+            R.bool.pref_default_value_cache_remote_files_on_disk
+        )
 }

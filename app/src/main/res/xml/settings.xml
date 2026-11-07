@@ -107,5 +107,11 @@
             android:key="@string/pref_key_read_remote_files_for_thumbnail"
             android:title="@string/settings_read_remote_files_for_thumbnail_title"
             android:defaultValue="@bool/pref_default_value_read_remote_files_for_thumbnail" />
+
+        <SwitchPreferenceCompat
+            android:key="@string/pref_key_cache_remote_files_on_disk"
+            android:title="@string/settings_cache_remote_files_on_disk_title"
+            android:summary="@string/settings_cache_remote_files_on_disk_summary"
+            android:defaultValue="@bool/pref_default_value_cache_remote_files_on_disk" />
     </PreferenceCategory>
 </PreferenceScreen>
