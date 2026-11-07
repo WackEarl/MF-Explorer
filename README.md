@@ -1,10 +1,9 @@
 # MF Explorer
 
-A fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by Hai Zhang. The package id is unchanged, so this build updates an existing install.
+A fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by Hai Zhang. The package id is unchanged, but this release is signed with a new key, so it does not replace an existing install.
 
 - NFSv3, with pipelined reads
 - Folder tabs that survive a restart
-- A disk cache for remote images
 - File jobs in the toolbar
 
 # Material Files
