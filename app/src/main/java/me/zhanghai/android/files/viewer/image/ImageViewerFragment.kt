@@ -162,7 +162,7 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
 
     override fun delete(path: Path) {
         try {
-            path.delete()
+            path.delete(false)
         } catch (e: IOException) {
             e.printStackTrace()
             showToast(e.toString())

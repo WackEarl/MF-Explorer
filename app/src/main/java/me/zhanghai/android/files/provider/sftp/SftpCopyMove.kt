@@ -15,6 +15,7 @@ import me.zhanghai.android.files.provider.common.CopyOptions
 import me.zhanghai.android.files.provider.common.copyTo
 import me.zhanghai.android.files.provider.common.newInputStream
 import me.zhanghai.android.files.provider.common.newOutputStream
+import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.sftp.client.Client
 import me.zhanghai.android.files.provider.sftp.client.ClientException
 import me.zhanghai.android.files.util.enumSetOf
@@ -73,30 +74,20 @@ internal object SftpCopyMove {
             .build()
         when (sourceType) {
             FileMode.Type.REGULAR -> {
-                if (targetAttributes != null) {
-                    try {
-                        Client.remove(target)
-                    } catch (e: ClientException) {
-                        val exception = e.toFileSystemException(target.toString())
-                        if (exception !is NoSuchFileException) {
-                            throw exception
-                        }
-                    }
-                }
+                val writePath = if (targetAttributes != null) target.tempCopy() else target
                 val sourceInputStream = try {
                     Client.openByteChannel(source, enumSetOf(OpenMode.READ), FileAttributes.EMPTY)
                 } catch (e: ClientException) {
                     throw e.toFileSystemException(source.toString())
                 }.newInputStream()
                 try {
-                    val targetFlags = enumSetOf(OpenMode.WRITE, OpenMode.TRUNC, OpenMode.CREAT)
-                    if (!copyOptions.replaceExisting) {
-                        targetFlags += OpenMode.EXCL
-                    }
+                    val targetFlags = enumSetOf(
+                        OpenMode.WRITE, OpenMode.TRUNC, OpenMode.CREAT, OpenMode.EXCL
+                    )
                     val targetOutputStream = try {
-                        Client.openByteChannel(target, targetFlags, sourceModeAttributes)
+                        Client.openByteChannel(writePath, targetFlags, sourceModeAttributes)
                     } catch (e: ClientException) {
-                        throw e.toFileSystemException(target.toString())
+                        throw e.toFileSystemException(writePath.toString())
                     }.newOutputStream()
                     var successful = false
                     try {
@@ -104,6 +95,13 @@ internal object SftpCopyMove {
                             targetOutputStream, copyOptions.progressIntervalMillis,
                             copyOptions.progressListener
                         )
+                        if (writePath != target) {
+                            try {
+                                replaceWithTemp(writePath, target)
+                            } catch (e: ClientException) {
+                                throw e.toFileSystemException(target.toString())
+                            }
+                        }
                         successful = true
                     } finally {
                         try {
@@ -113,7 +111,7 @@ internal object SftpCopyMove {
                         } finally {
                             if (!successful) {
                                 try {
-                                    Client.remove(target)
+                                    Client.remove(writePath)
                                 } catch (e: ClientException) {
                                     e.printStackTrace()
                                 }
@@ -129,7 +127,8 @@ internal object SftpCopyMove {
                 }
             }
             FileMode.Type.DIRECTORY -> {
-                if (targetAttributes != null) {
+                if (targetAttributes != null
+                    && targetAttributes.type != FileMode.Type.DIRECTORY) {
                     try {
                         Client.remove(target)
                     } catch (e: ClientException) {
@@ -142,7 +141,11 @@ internal object SftpCopyMove {
                 try {
                     Client.mkdir(target, sourceModeAttributes)
                 } catch (e: ClientException) {
-                    throw e.toFileSystemException(target.toString())
+                    val exception = e.toFileSystemException(target.toString())
+                    if (targetAttributes?.type != FileMode.Type.DIRECTORY
+                        || exception !is FileAlreadyExistsException) {
+                        throw exception
+                    }
                 }
                 copyOptions.progressListener?.invoke(sourceSize)
             }
@@ -152,25 +155,27 @@ internal object SftpCopyMove {
                 } catch (e: ClientException) {
                     throw e.toFileSystemException(source.toString())
                 }
+                val linkPath = if (targetAttributes != null) target.tempCopy() else target
                 try {
-                    Client.symlink(target, sourceTarget)
-                } catch (e: ClientException) {
-                    val exception = e.toFileSystemException(target.toString())
-                    if (exception is FileAlreadyExistsException && copyOptions.replaceExisting) {
+                    Client.symlink(linkPath, sourceTarget)
+                    if (linkPath != target) {
                         try {
-                            Client.remove(target)
-                        } catch (e2: ClientException) {
-                            if (e2.toFileSystemException(target.toString())
-                                    !is NoSuchFileException) {
-                                e2.addSuppressed(exception)
-                                throw e2.toFileSystemException(target.toString())
+                            replaceWithTemp(linkPath, target)
+                        } catch (e: ClientException) {
+                            try {
+                                Client.remove(linkPath)
+                            } catch (e2: ClientException) {
+                                e.addSuppressed(e2)
                             }
+                            throw e.toFileSystemException(target.toString())
                         }
+                    }
+                } catch (e: ClientException) {
+                    if (linkPath != target) {
                         try {
-                            Client.symlink(target, sourceTarget)
+                            Client.remove(linkPath)
                         } catch (e2: ClientException) {
-                            e2.addSuppressed(exception)
-                            throw e2.toFileSystemException(target.toString())
+                            e.addSuppressed(e2)
                         }
                     }
                     throw e.toFileSystemException(target.toString())
@@ -249,9 +254,13 @@ internal object SftpCopyMove {
                 throw FileAlreadyExistsException(source.toString(), target.toString(), null)
             }
             try {
-                Client.remove(target)
+                Client.rename(source, target, overwrite = true)
+                copyOptions.progressListener?.invoke(sourceSize)
+                return
             } catch (e: ClientException) {
-                throw e.toFileSystemException(target.toString())
+                if (copyOptions.atomicMove) {
+                    throw e.toFileSystemException(source.toString(), target.toString())
+                }
             }
         }
         var renameSuccessful = false
@@ -290,6 +299,43 @@ internal object SftpCopyMove {
                 }
             }
             throw e.toFileSystemException(source.toString())
+        }
+    }
+
+    private fun SftpPath.tempCopy(): SftpPath {
+        val name = fileNameByteString?.toString().orEmpty()
+        return resolveSibling(".$name.mftmp${System.nanoTime()}".toByteString())
+    }
+
+    /** Puts [temp] in place of [target]. [target] is moved aside first if overwrite is unavailable. */
+    private fun replaceWithTemp(temp: SftpPath, target: SftpPath) {
+        try {
+            Client.rename(temp, target, overwrite = true)
+            return
+        } catch (e: ClientException) {
+            val backup = target.tempCopy()
+            try {
+                Client.rename(target, backup)
+            } catch (e2: ClientException) {
+                e.addSuppressed(e2)
+                throw e
+            }
+            try {
+                Client.rename(temp, target)
+            } catch (e2: ClientException) {
+                try {
+                    Client.rename(backup, target)
+                } catch (e3: ClientException) {
+                    e2.addSuppressed(e3)
+                }
+                e.addSuppressed(e2)
+                throw e
+            }
+            try {
+                Client.remove(backup)
+            } catch (e2: ClientException) {
+                e2.printStackTrace()
+            }
         }
     }
 }

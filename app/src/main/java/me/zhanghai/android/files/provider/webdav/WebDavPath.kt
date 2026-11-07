@@ -101,6 +101,15 @@ internal class WebDavPath : ByteStringListPath<WebDavPath>, Client.Path {
             .addPathSegments(toString().removePrefix("/"))
             .build()
 
+    override val directoryUrl: HttpUrl
+        get() {
+            val base = url
+            if (base.encodedPath.endsWith("/")) {
+                return base
+            }
+            return base.newBuilder().addPathSegment("").build()
+        }
+
     private constructor(source: Parcel) : super(source) {
         fileSystem = source.readParcelable()!!
     }

@@ -54,15 +54,9 @@ internal object LinuxCopyMove {
             // Symbolic links may not be supported so we cannot simply remove the target here.
         }
         if (OsConstants.S_ISREG(sourceStat.st_mode)) {
-            if (targetStat != null) {
-                try {
-                    Syscall.remove(target)
-                } catch (e: SyscallException) {
-                    if (e.errno != OsConstants.ENOENT) {
-                        throw e.toFileSystemException(target.toString())
-                    }
-                }
-            }
+            // Write beside an existing file and rename over it. Deleting first loses the old
+            // file when the copy fails.
+            val writePath = if (targetStat != null) tempSibling(target) else target
             val sourceFd = try {
                 Syscall.open(source, OsConstants.O_RDONLY, 0)
             } catch (e: SyscallException) {
@@ -71,14 +65,14 @@ internal object LinuxCopyMove {
             try {
                 var targetFlags = (OsConstants.O_WRONLY or OsConstants.O_TRUNC
                     or OsConstants.O_CREAT)
-                if (!copyOptions.replaceExisting) {
+                if (writePath != target || !copyOptions.replaceExisting) {
                     targetFlags = targetFlags or OsConstants.O_EXCL
                 }
                 val targetFd = try {
-                    Syscall.open(target, targetFlags, sourceStat.st_mode)
+                    Syscall.open(writePath, targetFlags, sourceStat.st_mode)
                 } catch (e: SyscallException) {
                     e.maybeThrowInvalidFileNameException(target.toString())
-                    throw e.toFileSystemException(target.toString())
+                    throw e.toFileSystemException(writePath.toString())
                 }
                 var successful = false
                 try {
@@ -106,16 +100,27 @@ internal object LinuxCopyMove {
                         }
                     }
                     progressListener?.invoke(copiedSize)
+                    if (writePath != target) {
+                        Syscall.rename(writePath, target)
+                    }
                     successful = true
+                } catch (e: SyscallException) {
+                    throw e.toFileSystemException(source.toString(), target.toString())
                 } finally {
                     try {
                         Syscall.close(targetFd)
                     } catch (e: SyscallException) {
                         throw e.toFileSystemException(target.toString())
                     } finally {
-                        if (!successful) {
+                        if (!successful && writePath != target) {
                             try {
-                                Syscall.remove(target)
+                                Syscall.remove(writePath)
+                            } catch (e: SyscallException) {
+                                e.printStackTrace()
+                            }
+                        } else if (!successful) {
+                            try {
+                                Syscall.remove(writePath)
                             } catch (e: SyscallException) {
                                 e.printStackTrace()
                             }
@@ -130,20 +135,38 @@ internal object LinuxCopyMove {
                 }
             }
         } else if (OsConstants.S_ISDIR(sourceStat.st_mode)) {
-            if (targetStat != null) {
+            if (targetStat != null && !OsConstants.S_ISDIR(targetStat.st_mode)) {
+                val backup = tempSibling(target)
                 try {
-                    Syscall.remove(target)
+                    Syscall.rename(target, backup)
                 } catch (e: SyscallException) {
-                    if (e.errno != OsConstants.ENOENT) {
+                    throw e.toFileSystemException(target.toString())
+                }
+                try {
+                    Syscall.mkdir(target, sourceStat.st_mode)
+                    try {
+                        Syscall.remove(backup)
+                    } catch (e: SyscallException) {
+                        e.printStackTrace()
+                    }
+                } catch (e: SyscallException) {
+                    try {
+                        Syscall.rename(backup, target)
+                    } catch (e2: SyscallException) {
+                        e.addSuppressed(e2)
+                    }
+                    e.maybeThrowInvalidFileNameException(target.toString())
+                    throw e.toFileSystemException(target.toString())
+                }
+            } else {
+                try {
+                    Syscall.mkdir(target, sourceStat.st_mode)
+                } catch (e: SyscallException) {
+                    if (e.errno != OsConstants.EEXIST || targetStat == null) {
+                        e.maybeThrowInvalidFileNameException(target.toString())
                         throw e.toFileSystemException(target.toString())
                     }
                 }
-            }
-            try {
-                Syscall.mkdir(target, sourceStat.st_mode)
-            } catch (e: SyscallException) {
-                e.maybeThrowInvalidFileNameException(target.toString())
-                throw e.toFileSystemException(target.toString())
             }
             copyOptions.progressListener?.invoke(sourceStat.st_size)
         } else if (OsConstants.S_ISLNK(sourceStat.st_mode)) {
@@ -152,23 +175,18 @@ internal object LinuxCopyMove {
             } catch (e: SyscallException) {
                 throw e.toFileSystemException(source.toString())
             }
+            val linkPath = if (targetStat != null) tempSibling(target) else target
             try {
-                Syscall.symlink(sourceTarget, target)
+                Syscall.symlink(sourceTarget, linkPath)
+                if (linkPath != target) {
+                    Syscall.rename(linkPath, target)
+                }
             } catch (e: SyscallException) {
-                if (e.errno == OsConstants.EEXIST && copyOptions.replaceExisting) {
+                if (linkPath != target) {
                     try {
-                        Syscall.remove(target)
+                        Syscall.remove(linkPath)
                     } catch (e2: SyscallException) {
-                        if (e2.errno != OsConstants.ENOENT) {
-                            e2.addSuppressed(e.toFileSystemException(target.toString()))
-                            throw e2.toFileSystemException(target.toString())
-                        }
-                    }
-                    try {
-                        Syscall.symlink(sourceTarget, target)
-                    } catch (e2: SyscallException) {
-                        e2.addSuppressed(e.toFileSystemException(target.toString()))
-                        throw e2.toFileSystemException(target.toString())
+                        e.addSuppressed(e2)
                     }
                 }
                 e.maybeThrowInvalidFileNameException(target.toString())
@@ -231,6 +249,13 @@ internal object LinuxCopyMove {
         }
     }
 
+    private fun tempSibling(target: ByteString): ByteString {
+        val slash = target.lastIndexOf('/'.code.toByte())
+        val parent = if (slash >= 0) target.substring(0, slash + 1) else ByteString.EMPTY
+        val name = if (slash >= 0) target.substring(slash + 1) else target
+        return parent + ".$name.mftmp${System.nanoTime()}".toByteString()
+    }
+
     @Throws(IOException::class)
     fun move(source: ByteString, target: ByteString, copyOptions: CopyOptions) {
         val sourceStat = try {
@@ -254,11 +279,6 @@ internal object LinuxCopyMove {
             }
             if (!copyOptions.replaceExisting) {
                 throw FileAlreadyExistsException(source.toString(), target.toString(), null)
-            }
-            try {
-                Syscall.remove(target)
-            } catch (e: SyscallException) {
-                throw e.toFileSystemException(target.toString())
             }
         }
         var renameSuccessful = false

@@ -99,9 +99,9 @@ object Client {
     }
 
     @Throws(DavException::class)
-    fun delete(path: Path) {
+    fun delete(path: Path, isDirectory: Boolean = false) {
         try {
-            DavResource(getClient(path.authority), path.url).delete {}
+            DavResource(getClient(path.authority), path.url(isDirectory)).delete {}
         } catch (e: IOException) {
             throw e.toDavException()
         }
@@ -110,12 +110,18 @@ object Client {
     }
 
     @Throws(DavException::class)
-    fun move(source: Path, target: Path) {
+    fun move(
+        source: Path,
+        target: Path,
+        overwrite: Boolean = false,
+        sourceIsDirectory: Boolean = false
+    ) {
         if (source.authority != target.authority) {
             throw IOException("Paths aren't on the same authority")
         }
         try {
-            DavResource(getClient(source.authority), source.url).move(target.url, false) {}
+            DavResource(getClient(source.authority), source.url(sourceIsDirectory))
+                .move(target.url(sourceIsDirectory), overwrite) {}
         } catch (e: IOException) {
             throw e.toDavException()
         }
@@ -257,8 +263,11 @@ object Client {
     interface Path {
         val authority: Authority
         val url: HttpUrl
+        val directoryUrl: HttpUrl
         fun resolve(other: String): Path
     }
+
+    private fun Path.url(isDirectory: Boolean): HttpUrl = if (isDirectory) directoryUrl else url
 
     private class OkHttpAuthenticatorInterceptor(
         private val authenticator: Authenticator,

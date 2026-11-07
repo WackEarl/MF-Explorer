@@ -14,6 +14,7 @@ import java8.nio.file.FileSystemException
 import java8.nio.file.NoSuchFileException
 import java8.nio.file.StandardCopyOption
 import me.zhanghai.android.files.provider.common.CopyOptions
+import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.smb.client.Client
 import me.zhanghai.android.files.provider.smb.client.ClientException
 import me.zhanghai.android.files.provider.smb.client.FileInformation
@@ -71,42 +72,75 @@ internal object SmbCopyMove {
             enumSetOf(FileAttributes.FILE_ATTRIBUTE_NORMAL)
         }
         if (sourceIsRegularFile) {
-            if (targetInformation != null) {
-                try {
-                    Client.delete(target)
-                } catch (e: ClientException) {
-                    val exception = e.toFileSystemException(target.toString())
-                    if (exception !is NoSuchFileException) {
-                        throw exception
-                    }
-                }
-            }
+            val writePath = if (targetInformation != null) target.tempCopy() else target
             try {
                 Client.copyFile(
-                    source, target, copyOptions.copyAttributes, copyOptions.noFollowLinks,
+                    source, writePath, copyOptions.copyAttributes, copyOptions.noFollowLinks,
                     copyOptions.progressIntervalMillis, copyOptions.progressListener
                 )
+                if (writePath != target) {
+                    try {
+                        Client.rename(writePath, target)
+                    } catch (e: ClientException) {
+                        try {
+                            Client.delete(writePath)
+                        } catch (e2: ClientException) {
+                            e.addSuppressed(e2)
+                        }
+                        throw e
+                    }
+                }
             } catch (e: ClientException) {
+                if (writePath != target) {
+                    try {
+                        Client.delete(writePath)
+                    } catch (e2: ClientException) {
+                        e.addSuppressed(e2)
+                    }
+                }
                 (e.cause as? InterruptedIOException)?.let { throw it }
                 e.maybeThrowInvalidFileNameException(target.toString())
                 throw e.toFileSystemException(target.toString())
             }
         } else if (sourceIsDirectory) {
-            if (targetInformation != null) {
+            val targetIsDirectory = targetInformation != null &&
+                !targetInformation.fileAttributes
+                    .hasBits(FileAttributes.FILE_ATTRIBUTE_REPARSE_POINT.value) &&
+                targetInformation.fileAttributes
+                    .hasBits(FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value)
+            if (targetInformation != null && !targetIsDirectory) {
+                val backup = target.tempCopy()
                 try {
-                    Client.delete(target)
+                    Client.rename(target, backup)
+                } catch (e: ClientException) {
+                    throw e.toFileSystemException(target.toString())
+                }
+                try {
+                    Client.createDirectory(target, attributesToCopy)
+                    try {
+                        Client.delete(backup)
+                    } catch (e: ClientException) {
+                        e.printStackTrace()
+                    }
+                } catch (e: ClientException) {
+                    try {
+                        Client.rename(backup, target)
+                    } catch (e2: ClientException) {
+                        e.addSuppressed(e2)
+                    }
+                    e.maybeThrowInvalidFileNameException(target.toString())
+                    throw e.toFileSystemException(target.toString())
+                }
+            } else {
+                try {
+                    Client.createDirectory(target, attributesToCopy)
                 } catch (e: ClientException) {
                     val exception = e.toFileSystemException(target.toString())
-                    if (exception !is NoSuchFileException) {
+                    if (!targetIsDirectory || exception !is FileAlreadyExistsException) {
+                        e.maybeThrowInvalidFileNameException(target.toString())
                         throw exception
                     }
                 }
-            }
-            try {
-                Client.createDirectory(target, attributesToCopy)
-            } catch (e: ClientException) {
-                e.maybeThrowInvalidFileNameException(target.toString())
-                throw e.toFileSystemException(target.toString())
             }
             copyOptions.progressListener?.invoke(sourceInformation.endOfFile)
         } else if (sourceIsReparsePoint) {
@@ -190,11 +224,6 @@ internal object SmbCopyMove {
             if (!copyOptions.replaceExisting) {
                 throw FileAlreadyExistsException(source.toString(), target.toString(), null)
             }
-            try {
-                Client.delete(target)
-            } catch (e: ClientException) {
-                throw e.toFileSystemException(target.toString())
-            }
         }
         var renameSuccessful = false
         try {
@@ -235,5 +264,10 @@ internal object SmbCopyMove {
             }
             throw e.toFileSystemException(source.toString())
         }
+    }
+
+    private fun SmbPath.tempCopy(): SmbPath {
+        val name = fileNameByteString?.toString().orEmpty()
+        return resolveSibling(".$name.mftmp${System.nanoTime()}".toByteString())
     }
 }

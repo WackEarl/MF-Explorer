@@ -14,11 +14,11 @@ import net.schmizz.sshj.sftp.FileAttributes
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.RemoteFile
+import net.schmizz.sshj.sftp.RenameFlags
 import net.schmizz.sshj.sftp.Response
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.sftp.SFTPException
 import net.schmizz.sshj.transport.TransportException
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.UserAuthException
 import java.io.IOException
 import java.util.Collections
@@ -124,9 +124,7 @@ object Client {
         }
     }
 
-    // Note that unlike POSIX rename(), this won't overwrite an existing file.
-    @Throws(ClientException::class)
-    fun rename(path: Path, newPath: Path) {
+    fun rename(path: Path, newPath: Path, overwrite: Boolean = false) {
         if (newPath.authority != path.authority) {
             throw ClientException(
                 SFTPException(Response.StatusCode.FAILURE, "Paths aren't on the same authority")
@@ -134,7 +132,13 @@ object Client {
         }
         val client = getClient(path.authority)
         try {
-            client.rename(path.remotePath, newPath.remotePath)
+            if (overwrite) {
+                client.rename(
+                    path.remotePath, newPath.remotePath, setOf(RenameFlags.OVERWRITE)
+                )
+            } else {
+                client.rename(path.remotePath, newPath.remotePath)
+            }
         } catch (e: IOException) {
             throw ClientException(e)
         }
@@ -237,7 +241,7 @@ object Client {
             }
             val authentication = authenticator.getAuthentication(authority)
                 ?: throw ClientException("No authentication found for $authority")
-            val sshClient = SSHClient().apply { addHostKeyVerifier(PromiscuousVerifier()) }
+            val sshClient = SSHClient().apply { addHostKeyVerifier(HostKeys) }
             try {
                 sshClient.connect(authority.host, authority.port)
             } catch (e: IOException) {
