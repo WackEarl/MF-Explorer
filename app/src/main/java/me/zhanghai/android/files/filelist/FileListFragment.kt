@@ -582,8 +582,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun updateTabBarVisibility() {
-        val count = viewModel.tabsLiveData.value?.ids?.size ?: 0
-        binding.tabBarLayout.isVisible = viewModel.pickOptions == null && count > 1
+        binding.tabBarLayout.isVisible = viewModel.pickOptions == null
     }
 
     private fun createTabView(id: Long, title: String, showClose: Boolean): View {
