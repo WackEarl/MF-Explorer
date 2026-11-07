@@ -10,19 +10,23 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import java8.nio.file.Path
 import me.zhanghai.android.files.navigation.NavigationRootMapLiveData
-import me.zhanghai.android.files.util.valueCompat
 
-class BreadcrumbLiveData(
-    private val trailLiveData: LiveData<TrailData>
-) : MediatorLiveData<BreadcrumbData>() {
+class BreadcrumbLiveData : MediatorLiveData<BreadcrumbData>() {
+    private var trailLiveData: LiveData<TrailData>? = null
+
     init {
-        addSource(trailLiveData) { loadValue() }
         addSource(NavigationRootMapLiveData) { loadValue() }
     }
 
+    fun setTrail(trailLiveData: LiveData<TrailData>) {
+        this.trailLiveData?.let { removeSource(it) }
+        this.trailLiveData = trailLiveData
+        addSource(trailLiveData) { loadValue() }
+    }
+
     private fun loadValue() {
-        val navigationRootMap = NavigationRootMapLiveData.valueCompat
-        val trailData = trailLiveData.valueCompat
+        val trailData = trailLiveData?.value ?: return
+        val navigationRootMap = NavigationRootMapLiveData.value ?: return
         val paths = mutableListOf<Path>()
         val nameProducers = mutableListOf<(Context) -> String>()
         var selectedIndex = trailData.currentIndex

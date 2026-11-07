@@ -5,4 +5,10 @@
 
 package me.zhanghai.android.files.filelist
 
-class SearchState(val isSearching: Boolean, val query: String)
+import java8.nio.file.Path
+
+class SearchState(
+    val isSearching: Boolean,
+    val query: String,
+    val directory: Path? = null
+)

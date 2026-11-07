@@ -294,6 +294,7 @@
     <string name="file_list_action_sort_directories_first">Ordner zuerst</string>
     <string name="file_list_action_view_sort_path_specific">Nur für diesen Ordner</string>
     <string name="file_list_action_new_task">Neues Fenster</string>
+    <string name="file_list_action_new_tab">Neuer Tab</string>
     <string name="file_list_action_navigate_up">Gehe hoch</string>
     <string name="file_list_action_navigate_to">Gehe zu</string>
     <string name="file_list_action_show_hidden_files">Versteckte Dateien anzeigen</string>
@@ -302,6 +303,9 @@
     <string name="file_list_action_add_bookmark">Lesezeichen hinzufügen</string>
     <string name="file_list_action_create_shortcut">Verknüpfung erstellen</string>
     <string name="file_list_breadcrumb_action_open_in_new_task">In neuem Fenster öffnen</string>
+    <string name="file_list_breadcrumb_action_open_in_new_tab">In neuem Tab öffnen</string>
+    <string name="file_list_tab_close">Tab schließen</string>
+    <string name="file_list_tabs_full">Höchstens 10 Tabs</string>
     <string name="file_list_select_title_format">%1$,d</string>
     <string name="file_list_create_file_name_hint">Dateiname</string>
     <string name="file_list_open_current_directory_format">\"%1$s\" auswählen</string>

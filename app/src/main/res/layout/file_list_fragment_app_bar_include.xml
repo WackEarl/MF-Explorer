@@ -47,11 +47,53 @@
                 app:popupTheme="?actionBarPopupTheme" />
         </FrameLayout>
 
+        <LinearLayout
+            android:id="@+id/tabBarLayout"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:clipChildren="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/tabLayout"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                app:tabGravity="start"
+                app:tabIndicatorFullWidth="false"
+                app:tabMinWidth="48dp"
+                app:tabMode="scrollable"
+                app:tabPaddingTop="0dp"
+                app:tabPaddingBottom="0dp"
+                app:tabPaddingEnd="4dp"
+                app:tabPaddingStart="12dp"
+                app:tabRippleColor="?colorControlHighlight" />
+
+            <ImageButton
+                android:id="@+id/addTabButton"
+                android:layout_width="@dimen/tab_layout_height"
+                android:layout_height="@dimen/tab_layout_height"
+                android:background="?actionBarItemBackground"
+                android:contentDescription="@string/file_list_action_new_tab"
+                android:src="@drawable/add_icon_white_24dp"
+                app:tint="?colorControlNormal" />
+        </LinearLayout>
+
         <me.zhanghai.android.files.filelist.BreadcrumbLayout
             android:id="@+id/breadcrumbLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingStart="@dimen/content_start_margin_minus_12dp"
             android:paddingEnd="@dimen/screen_edge_margin_minus_12dp" />
+
+        <ProgressBar
+            android:id="@+id/searchProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:indeterminate="true"
+            android:visibility="gone" />
     </me.zhanghai.android.files.ui.CoordinatorAppBarLayout>
 </merge>

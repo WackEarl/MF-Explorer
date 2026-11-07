@@ -49,6 +49,13 @@ class TrailData private constructor(
         return TrailData(trail, states, newIndex)
     }
 
+    fun saveScrollState(state: Parcelable) {
+        states[currentIndex] = state
+    }
+
+    val hasPendingScroll: Boolean
+        get() = states[currentIndex] != null
+
     val pendingState: Parcelable?
         get() = states.set(currentIndex, null)
 

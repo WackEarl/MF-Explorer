@@ -14,8 +14,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.text.TextUtils
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -25,6 +23,7 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -48,6 +47,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.android.material.tabs.TabLayout
 import com.leinardi.android.speeddial.SpeedDialView
 import java8.nio.file.Path
 import java8.nio.file.Paths
@@ -64,6 +64,7 @@ import me.zhanghai.android.files.databinding.FileListFragmentBottomBarIncludeBin
 import me.zhanghai.android.files.databinding.FileListFragmentContentIncludeBinding
 import me.zhanghai.android.files.databinding.FileListFragmentIncludeBinding
 import me.zhanghai.android.files.databinding.FileListFragmentSpeedDialIncludeBinding
+import me.zhanghai.android.files.databinding.FileListTabBinding
 import me.zhanghai.android.files.file.FileItem
 import me.zhanghai.android.files.file.MimeType
 import me.zhanghai.android.files.file.asMimeTypeOrNull
@@ -96,7 +97,6 @@ import me.zhanghai.android.files.ui.ScrollingViewOnApplyWindowInsetsListener
 import me.zhanghai.android.files.ui.SpeedDialViewOnBackPressedCallback
 import me.zhanghai.android.files.ui.ThemedFastScroller
 import me.zhanghai.android.files.ui.ToolbarActionMode
-import me.zhanghai.android.files.util.DebouncedRunnable
 import me.zhanghai.android.files.util.Failure
 import me.zhanghai.android.files.util.Loading
 import me.zhanghai.android.files.util.ParcelableArgs
@@ -181,16 +181,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     private lateinit var adapter: FileListAdapter
 
-    private val debouncedSearchRunnable = DebouncedRunnable(Handler(Looper.getMainLooper()), 1000) {
-        if (!isResumed || !viewModel.isSearchViewExpanded) {
-            return@DebouncedRunnable
-        }
-        val query = viewModel.searchViewQuery
-        if (query.isEmpty()) {
-            return@DebouncedRunnable
-        }
-        viewModel.search(query)
-    }
+    private var applyingTab = false
+
+    private var updatingTabs = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -234,6 +227,24 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         binding.appBarLayout.syncBackgroundColorTo(binding.overlayToolbar)
         binding.breadcrumbLayout.setListener(this)
+        binding.addTabButton.setOnClickListener { openNewTab(currentPath) }
+        binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                if (updatingTabs) {
+                    return
+                }
+                val id = tab.tag as? Long ?: return
+                if (id == viewModel.activeTabId) {
+                    return
+                }
+                viewModel.selectTab(id, layoutManager.onSaveInstanceState())
+                syncSearchView()
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
         if (!(activity.hasSw600Dp && activity.isOrientationLandscape)) {
             binding.swipeRefreshLayout.setProgressViewEndTarget(
                 true, binding.swipeRefreshLayout.progressViewEndOffset
@@ -261,18 +272,17 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
 
         val viewLifecycleOwner = viewLifecycleOwner
-        addOnBackPressedCallback(
-            object : OnBackPressedCallback(false) {
-                override fun handleOnBackPressed() {
+        val upCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                if (viewModel.canNavigateUpBreadcrumb) {
                     viewModel.navigateUp()
+                } else {
+                    viewModel.closeTab(viewModel.activeTabId)
+                    syncSearchView()
                 }
             }
-                .also { callback ->
-                    viewModel.breadcrumbLiveData.observe(viewLifecycleOwner) {
-                        callback.isEnabled = viewModel.canNavigateUpBreadcrumb
-                    }
-                }
-        )
+        }
+        addOnBackPressedCallback(upCallback)
         addOnBackPressedCallback(overlayActionMode.onBackPressedCallback)
         addOnBackPressedCallback(SpeedDialViewOnBackPressedCallback(binding.speedDialView))
         binding.drawerLayout?.let {
@@ -345,7 +355,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             onSearchViewExpandedChanged(it)
         }
         viewModel.breadcrumbLiveData.observe(viewLifecycleOwner) {
+            upCallback.isEnabled = viewModel.canNavigateUpBreadcrumb || viewModel.canCloseTab
             binding.breadcrumbLayout.setData(it)
+        }
+        viewModel.tabsLiveData.observe(viewLifecycleOwner) {
+            upCallback.isEnabled = viewModel.canNavigateUpBreadcrumb || viewModel.canCloseTab
+            onTabsChanged(it)
         }
         viewModel.viewTypeLiveData.observe(viewLifecycleOwner) { onViewTypeChanged(it) }
         // Live data only calls observeForever() on its sources when it is active, so we have to
@@ -394,33 +409,69 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         // MenuItem.OnActionExpandListener.onMenuItemActionExpand() is called before SearchView
         // resets the query.
         searchView.setOnSearchClickListener {
+            if (applyingTab) {
+                return@setOnSearchClickListener
+            }
             viewModel.isSearchViewExpanded = true
             searchView.setQuery(viewModel.searchViewQuery, false)
-            debouncedSearchRunnable()
+            updateAdapterFileList()
         }
         // SearchView.OnCloseListener.onClose() is not always called.
         menuBinding.searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-            override fun onMenuItemActionExpand(item: MenuItem): Boolean = true
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                if (!applyingTab) {
+                    viewModel.isSearchViewExpanded = true
+                }
+                return true
+            }
 
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                viewModel.isSearchViewExpanded = false
-                viewModel.stopSearching()
+                if (!applyingTab) {
+                    viewModel.isSearchViewExpanded = false
+                    viewModel.stopSearching()
+                    updateAdapterFileList()
+                }
                 return true
             }
         })
+        val queryText = searchView.findViewById<TextView>(androidx.appcompat.R.id.search_src_text)
+        queryText.setOnEditorActionListener { _, actionId, event ->
+            val enterKey = event?.keyCode == KeyEvent.KEYCODE_ENTER
+            val submitAction = actionId == EditorInfo.IME_ACTION_SEARCH ||
+                actionId == EditorInfo.IME_ACTION_GO ||
+                actionId == EditorInfo.IME_ACTION_DONE ||
+                actionId == EditorInfo.IME_ACTION_SEND
+            if (enterKey || submitAction) {
+                submitDeepSearch(queryText.text?.toString().orEmpty())
+                true
+            } else {
+                false
+            }
+        }
+        queryText.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP &&
+                event.hasNoModifiers()) {
+                submitDeepSearch(queryText.text?.toString().orEmpty())
+                true
+            } else {
+                false
+            }
+        }
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean {
-                debouncedSearchRunnable.cancel()
-                viewModel.search(query)
+                submitDeepSearch(query)
                 return true
             }
 
             override fun onQueryTextChange(query: String): Boolean {
-                if (searchView.shouldIgnoreQueryChange) {
+                if (applyingTab || searchView.shouldIgnoreQueryChange) {
                     return false
                 }
                 viewModel.searchViewQuery = query
-                debouncedSearchRunnable()
+                if (viewModel.searchState.isSearching && query != viewModel.searchState.query) {
+                    viewModel.stopSearching()
+                }
+                updateAdapterFileList()
                 return false
             }
         })
@@ -429,9 +480,103 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
     }
 
+    private fun submitDeepSearch(query: String) {
+        if (applyingTab || query.isEmpty()) {
+            return
+        }
+        viewModel.isSearchViewExpanded = true
+        viewModel.search(query)
+        binding.toolbar.setSubtitle(R.string.loading)
+        binding.swipeRefreshLayout.isRefreshing = true
+        binding.searchProgress.fadeToVisibilityUnsafe(true, gone = true)
+    }
+
     private fun collapseSearchView() {
         if (this::menuBinding.isInitialized && menuBinding.searchItem.isActionViewExpanded) {
             menuBinding.searchItem.collapseActionView()
+        }
+    }
+
+    private fun syncSearchView() {
+        if (!this::menuBinding.isInitialized) {
+            return
+        }
+        applyingTab = true
+        try {
+            val item = menuBinding.searchItem
+            if (viewModel.isSearchViewExpanded) {
+                if (!item.isActionViewExpanded) {
+                    item.expandActionView()
+                }
+                val searchView = item.actionView as FixQueryChangeSearchView
+                searchView.setQuery(viewModel.searchViewQuery, false)
+            } else if (item.isActionViewExpanded) {
+                item.collapseActionView()
+            }
+        } finally {
+            applyingTab = false
+        }
+    }
+
+    private fun onTabsChanged(tabs: FileTabs) {
+        val tabLayout = binding.tabLayout
+        val sameIds = tabLayout.tabCount == tabs.ids.size &&
+            tabs.ids.indices.all { tabLayout.getTabAt(it)?.tag == tabs.ids[it] }
+        updatingTabs = true
+        try {
+            if (!sameIds) {
+                tabLayout.removeAllTabs()
+                val showClose = tabs.ids.size > 1
+                for (index in tabs.ids.indices) {
+                    val id = tabs.ids[index]
+                    val tab = tabLayout.newTab()
+                    tab.tag = id
+                    tab.customView = createTabView(id, tabTitle(tabs.paths[index]), showClose)
+                    tabLayout.addTab(tab, index == tabs.selectedIndex)
+                }
+            } else {
+                val showClose = tabs.ids.size > 1
+                for (index in tabs.ids.indices) {
+                    val view = tabLayout.getTabAt(index)?.customView ?: continue
+                    val tabBinding = FileListTabBinding.bind(view)
+                    tabBinding.titleText.text = tabTitle(tabs.paths[index])
+                    tabBinding.closeButton.isVisible = showClose
+                }
+                if (tabLayout.selectedTabPosition != tabs.selectedIndex) {
+                    tabLayout.getTabAt(tabs.selectedIndex)?.select()
+                }
+            }
+        } finally {
+            updatingTabs = false
+        }
+        binding.tabBarLayout.isVisible = viewModel.pickOptions == null
+    }
+
+    private fun createTabView(id: Long, title: String, showClose: Boolean): View {
+        val tabBinding = FileListTabBinding.inflate(layoutInflater, binding.tabLayout, false)
+        tabBinding.titleText.text = title
+        tabBinding.closeButton.isVisible = showClose
+        tabBinding.closeButton.setOnClickListener {
+            if (viewModel.closeTab(id)) {
+                syncSearchView()
+            }
+        }
+        return tabBinding.root
+    }
+
+    private fun tabTitle(path: Path): String {
+        val root = NavigationRootMapLiveData.value?.get(path)
+        return root?.getName(requireContext()) ?: path.name
+    }
+
+    private fun openNewTab(path: Path) {
+        if (viewModel.pickOptions != null) {
+            return
+        }
+        if (!viewModel.openTab(path, layoutManager.onSaveInstanceState())) {
+            showToast(R.string.file_list_tabs_full)
+        } else {
+            syncSearchView()
         }
     }
 
@@ -441,6 +586,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         updateViewSortMenuItems()
         updateSelectAllMenuItem()
         updateShowHiddenFilesMenuItem()
+        updateNewTabMenuItem()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -497,7 +643,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 true
             }
             R.id.action_new_task -> {
-                newTask()
+                openNewTab(currentPath)
                 true
             }
             R.id.action_navigate_up -> {
@@ -589,15 +735,23 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     private fun onFileListChanged(stateful: Stateful<List<FileItem>>) {
         val files = stateful.value
         val isSearching = viewModel.searchState.isSearching
+        val displayed = files?.let { displayedFiles(it) }
         when {
             stateful is Failure -> binding.toolbar.setSubtitle(R.string.error)
-            stateful is Loading && !isSearching -> binding.toolbar.setSubtitle(R.string.loading)
-            else -> binding.toolbar.subtitle = getSubtitle(files!!)
+            isSearching && stateful !is Success -> binding.toolbar.setSubtitle(R.string.loading)
+            stateful is Loading -> binding.toolbar.setSubtitle(R.string.loading)
+            displayed != null -> binding.toolbar.subtitle = getSubtitle(displayed)
         }
         val hasFiles = !files.isNullOrEmpty()
-        binding.swipeRefreshLayout.isRefreshing = stateful is Loading && (hasFiles || isSearching)
-        binding.progress.fadeToVisibilityUnsafe(stateful is Loading && !(hasFiles || isSearching))
+        val searchRunning = isSearching && stateful !is Success && stateful !is Failure
+        binding.searchProgress.fadeToVisibilityUnsafe(searchRunning, gone = true)
+        binding.swipeRefreshLayout.isRefreshing = (stateful is Loading && hasFiles && !isSearching) ||
+            (searchRunning && !hasFiles)
+        binding.progress.fadeToVisibilityUnsafe(stateful is Loading && !hasFiles && !isSearching)
         binding.errorText.fadeToVisibilityUnsafe(stateful is Failure && !hasFiles)
+        if (stateful is Failure && !hasFiles) {
+            binding.errorText.bringToFront()
+        }
         val throwable = (stateful as? Failure)?.throwable
         if (throwable != null) {
             throwable.printStackTrace()
@@ -608,10 +762,10 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 binding.errorText.text = error
             }
         }
-        binding.emptyView.fadeToVisibilityUnsafe(stateful is Success && !hasFiles)
-        if (files != null) {
-            updateAdapterFileList()
-        } else {
+        binding.emptyView.fadeToVisibilityUnsafe(stateful is Success && displayed.isNullOrEmpty())
+        if (displayed != null) {
+            adapter.replaceListAndIsSearching(displayed, isSearching, searchDirectory())
+        } else if (!isSearching) {
             // This resets animation as well.
             adapter.clear()
         }
@@ -714,10 +868,6 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         NavigateToPathDialogFragment.show(currentPath, this)
     }
 
-    private fun newTask() {
-        openInNewTask(currentPath)
-    }
-
     private fun refresh() {
         viewModel.reload()
     }
@@ -732,11 +882,34 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun updateAdapterFileList() {
-        var files = viewModel.fileListStateful.value ?: return
-        if (!Settings.FILE_LIST_SHOW_HIDDEN_FILES.valueCompat) {
-            files = files.filterNot { it.isHidden }
+        val stateful = viewModel.fileListLiveData.value ?: return
+        val files = stateful.value ?: return
+        val displayed = displayedFiles(files)
+        val isSearching = viewModel.searchState.isSearching
+        adapter.replaceListAndIsSearching(displayed, isSearching, searchDirectory())
+        if (stateful is Success || (isSearching && stateful !is Failure)) {
+            binding.toolbar.subtitle = getSubtitle(displayed)
         }
-        adapter.replaceListAndIsSearching(files, viewModel.searchState.isSearching)
+        if (stateful is Success) {
+            binding.emptyView.fadeToVisibilityUnsafe(displayed.isEmpty())
+        }
+    }
+
+    private fun searchDirectory(): Path? =
+        if (viewModel.searchState.isSearching) viewModel.currentPath else null
+
+    private fun displayedFiles(files: List<FileItem>): List<FileItem> {
+        var result = files
+        if (!Settings.FILE_LIST_SHOW_HIDDEN_FILES.valueCompat) {
+            result = result.filterNot { it.isHidden }
+        }
+        if (viewModel.isSearchViewExpanded && !viewModel.searchState.isSearching) {
+            val query = viewModel.searchViewQuery
+            if (query.isNotEmpty()) {
+                result = result.filter { it.path.name.contains(query, ignoreCase = true) }
+            }
+        }
+        return result
     }
 
     private fun updateShowHiddenFilesMenuItem() {
@@ -774,10 +947,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         clipboardManager.copyText(path.toUserFriendlyString(), requireContext())
     }
 
-    override fun openInNewTask(path: Path) {
-        val intent = FileListActivity.createViewIntent(path)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        startActivitySafe(intent)
+    override fun openInNewTab(path: Path) {
+        openNewTab(path)
     }
 
     private fun onPickOptionsChanged(pickOptions: PickOptions?) {
@@ -794,6 +965,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             }
         }
         requireActivity().title = title
+        binding.tabBarLayout.isVisible = pickOptions == null
+        binding.breadcrumbLayout.openInNewTabEnabled = pickOptions == null
+        updateNewTabMenuItem()
         updateSelectAllMenuItem()
         updateOverlayToolbar()
         updateBottomToolbar()
@@ -806,6 +980,13 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         val pickOptions = viewModel.pickOptions
         menuBinding.selectAllItem.isVisible = pickOptions == null || pickOptions.allowMultiple
+    }
+
+    private fun updateNewTabMenuItem() {
+        if (!this::menuBinding.isInitialized) {
+            return
+        }
+        menuBinding.newTabItem.isVisible = viewModel.pickOptions == null
     }
 
     private fun pickFiles(files: FileItemSet) {
@@ -1661,7 +1842,11 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val appBarLayout: CoordinatorAppBarLayout,
         val toolbar: Toolbar,
         val overlayToolbar: Toolbar,
+        val tabBarLayout: View,
+        val tabLayout: TabLayout,
+        val addTabButton: View,
         val breadcrumbLayout: BreadcrumbLayout,
+        val searchProgress: ProgressBar,
         val contentLayout: ViewGroup,
         val progress: ProgressBar,
         val errorText: TextView,
@@ -1690,7 +1875,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     bindingRoot, includeBinding.drawerLayout, includeBinding.persistentDrawerLayout,
                     includeBinding.persistentBarLayout, appBarBinding.appBarLayout,
                     appBarBinding.toolbar, appBarBinding.overlayToolbar,
-                    appBarBinding.breadcrumbLayout, contentBinding.contentLayout,
+                    appBarBinding.tabBarLayout, appBarBinding.tabLayout, appBarBinding.addTabButton,
+                    appBarBinding.breadcrumbLayout, appBarBinding.searchProgress,
+                    contentBinding.contentLayout,
                     contentBinding.progress, contentBinding.errorText, contentBinding.emptyView,
                     contentBinding.swipeRefreshLayout, contentBinding.recyclerView,
                     bottomBarBinding.bottomBarLayout, bottomBarBinding.bottomToolbar,
@@ -1714,7 +1901,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val sortDirectoriesFirstItem: MenuItem,
         val viewSortPathSpecificItem: MenuItem,
         val selectAllItem: MenuItem,
-        val showHiddenFilesItem: MenuItem
+        val showHiddenFilesItem: MenuItem,
+        val newTabItem: MenuItem
     ) {
         companion object {
             fun inflate(menu: Menu, inflater: MenuInflater): MenuBinding {
@@ -1730,7 +1918,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     menu.findItem(R.id.action_sort_directories_first),
                     menu.findItem(R.id.action_view_sort_path_specific),
                     menu.findItem(R.id.action_select_all),
-                    menu.findItem(R.id.action_show_hidden_files)
+                    menu.findItem(R.id.action_show_hidden_files),
+                    menu.findItem(R.id.action_new_task)
                 )
             }
         }

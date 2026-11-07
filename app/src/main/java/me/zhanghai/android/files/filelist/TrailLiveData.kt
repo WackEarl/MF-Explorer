@@ -23,6 +23,13 @@ class TrailLiveData : LiveData<TrailData>() {
         value = TrailData.of(path)
     }
 
+    fun saveScrollState(state: Parcelable?) {
+        if (state == null) {
+            return
+        }
+        value?.saveScrollState(state)
+    }
+
     fun navigateUp(): Boolean {
         val oldTrailData = value ?: return false
         val trailData = oldTrailData.navigateUp() ?: return false

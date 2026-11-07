@@ -45,6 +45,14 @@ class BreadcrumbLayout : HorizontalScrollView {
     private lateinit var listener: Listener
     private lateinit var data: BreadcrumbData
 
+    var openInNewTabEnabled: Boolean = true
+        set(value) {
+            field = value
+            if (this::data.isInitialized) {
+                bindItemViews()
+            }
+        }
+
     private var isLayoutDirty = true
     private var isScrollToSelectedItemPending = false
     private var isFirstScroll = true
@@ -181,6 +189,7 @@ class BreadcrumbLayout : HorizontalScrollView {
             binding.arrowImage.isVisible = index != data.paths.size - 1
             binding.root.isActivated = index == data.selectedIndex
             val path = data.paths[index]
+            menu.menu.findItem(R.id.action_open_in_new_task).isVisible = openInNewTabEnabled
             binding.root.setOnClickListener {
                 if (data.selectedIndex == index) {
                     scrollToSelectedItem()
@@ -195,7 +204,7 @@ class BreadcrumbLayout : HorizontalScrollView {
                         true
                     }
                     R.id.action_open_in_new_task -> {
-                        listener.openInNewTask(path)
+                        listener.openInNewTab(path)
                         true
                     }
                     else -> false
@@ -207,6 +216,6 @@ class BreadcrumbLayout : HorizontalScrollView {
     interface Listener {
         fun navigateTo(path: Path)
         fun copyPath(path: Path)
-        fun openInNewTask(path: Path)
+        fun openInNewTab(path: Path)
     }
 }

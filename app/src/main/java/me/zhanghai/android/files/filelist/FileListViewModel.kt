@@ -10,7 +10,6 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.map
 import java8.nio.file.Path
 import me.zhanghai.android.files.file.FileItem
 import me.zhanghai.android.files.filelist.FileSortOptions.By
@@ -19,50 +18,157 @@ import me.zhanghai.android.files.provider.archive.archiveRefresh
 import me.zhanghai.android.files.provider.archive.isArchivePath
 import me.zhanghai.android.files.util.CloseableLiveData
 import me.zhanghai.android.files.util.Stateful
+import me.zhanghai.android.files.util.Success
 import me.zhanghai.android.files.util.valueCompat
 import java.io.Closeable
 
 // TODO: Use SavedStateHandle to save state.
 class FileListViewModel : ViewModel() {
-    private val trailLiveData = TrailLiveData()
-    val hasTrail: Boolean
-        get() = trailLiveData.value != null
-    val pendingState: Parcelable?
-        get() = trailLiveData.valueCompat.pendingState
+    private val tabs = mutableListOf<FileTab>()
+    private var activeIndex = -1
+    private var nextTabId = 1L
 
-    fun navigateTo(lastState: Parcelable, path: Path) = trailLiveData.navigateTo(lastState, path)
+    private val active: FileTab
+        get() = tabs[activeIndex]
+    val activeTabId: Long
+        get() = active.id
+    val canCloseTab: Boolean
+        get() = pickOptions == null && tabs.size > 1
 
-    fun resetTo(path: Path) = trailLiveData.resetTo(path)
+    private val _tabsLiveData = MutableLiveData<FileTabs>()
+    val tabsLiveData: LiveData<FileTabs> = _tabsLiveData
 
-    fun navigateUp(): Boolean = trailLiveData.navigateUp()
-
-    val currentPathLiveData = trailLiveData.map { it.currentPath }
+    private var trailSource: LiveData<TrailData>? = null
+    private val currentPathMediator = MediatorLiveData<Path>()
+    val currentPathLiveData: LiveData<Path> = currentPathMediator
     val currentPath: Path
-        get() = currentPathLiveData.valueCompat
+        get() = currentPathMediator.valueCompat
+    val hasTrail: Boolean
+        get() = activeIndex >= 0 && active.trailLiveData.value != null
+    val pendingState: Parcelable?
+        get() = active.trailLiveData.valueCompat.pendingState
 
-    private val _searchStateLiveData = MutableLiveData(SearchState(false, ""))
-    val searchStateLiveData: LiveData<SearchState> = _searchStateLiveData
+    fun navigateTo(lastState: Parcelable, path: Path) {
+        active.trailLiveData.navigateTo(lastState, path)
+        publishTabs()
+    }
+
+    fun resetTo(path: Path) {
+        if (tabs.isEmpty()) {
+            val tab = FileTab(nextTabId++)
+            tabs.add(tab)
+            activeIndex = 0
+            tab.trailLiveData.resetTo(path)
+            rebind()
+        } else {
+            active.trailLiveData.resetTo(path)
+            publishTabs()
+        }
+    }
+
+    fun navigateUp(): Boolean {
+        if (!active.trailLiveData.navigateUp()) {
+            return false
+        }
+        publishTabs()
+        return true
+    }
+
+    fun openTab(path: Path, scrollState: Parcelable?): Boolean {
+        if (pickOptions != null || tabs.size >= MAX_TABS) {
+            return false
+        }
+        saveLeavingScroll(scrollState)
+        val tab = FileTab(nextTabId++)
+        tab.trailLiveData.resetTo(path)
+        tabs.add(tab)
+        activeIndex = tabs.lastIndex
+        rebind()
+        return true
+    }
+
+    fun selectTab(id: Long, scrollState: Parcelable?) {
+        val index = tabs.indexOfFirst { it.id == id }
+        if (index < 0 || index == activeIndex) {
+            return
+        }
+        saveLeavingScroll(scrollState)
+        activeIndex = index
+        rebind()
+    }
+
+    private fun saveLeavingScroll(scrollState: Parcelable?) {
+        if (scrollState == null) {
+            return
+        }
+        val trail = active.trailLiveData.value ?: return
+        // A load still has to restore this position. The list on screen is empty until then,
+        // so the layout state would overwrite it with the top.
+        if (_fileListLiveData.value !is Success && trail.hasPendingScroll) {
+            return
+        }
+        active.trailLiveData.saveScrollState(scrollState)
+    }
+
+    fun closeTab(id: Long): Boolean {
+        if (tabs.size <= 1) {
+            return false
+        }
+        val index = tabs.indexOfFirst { it.id == id }
+        if (index < 0) {
+            return false
+        }
+        val closingActive = index == activeIndex
+        val removed = tabs.removeAt(index)
+        if (closingActive) {
+            activeIndex = index.coerceAtMost(tabs.lastIndex)
+            rebind()
+        } else {
+            if (index < activeIndex) {
+                activeIndex--
+            }
+            publishTabs()
+        }
+        removed.closeList()
+        return true
+    }
+
+    private var searchSource: LiveData<SearchState>? = null
+    private val searchStateMediator = MediatorLiveData<SearchState>()
+    val searchStateLiveData: LiveData<SearchState> = searchStateMediator
     val searchState: SearchState
-        get() = _searchStateLiveData.valueCompat
+        get() = searchStateMediator.valueCompat
 
     fun search(query: String) {
-        val searchState = _searchStateLiveData.valueCompat
+        val liveData = active.searchStateLiveData
+        val searchState = liveData.valueCompat
         if (searchState.isSearching && searchState.query == query) {
             return
         }
-        _searchStateLiveData.value = SearchState(true, query)
+        val directory = if (searchState.isSearching) {
+            searchState.directory ?: currentPath
+        } else {
+            displayedDirectory() ?: currentPath
+        }
+        liveData.value = SearchState(true, query, directory)
+    }
+
+    private fun displayedDirectory(): Path? {
+        val files = (_fileListLiveData.value as? Success)?.value ?: return null
+        return files.mapNotNull { it.path.parent }.distinct().singleOrNull()
     }
 
     fun stopSearching() {
-        val searchState = _searchStateLiveData.valueCompat
+        val liveData = active.searchStateLiveData
+        val searchState = liveData.valueCompat
         if (!searchState.isSearching) {
             return
         }
-        _searchStateLiveData.value = SearchState(false, "")
+        liveData.value = SearchState(false, "")
     }
 
     private val _fileListLiveData =
-        FileListSwitchMapLiveData(currentPathLiveData, _searchStateLiveData)
+        FileListSwitchMapLiveData(currentPathLiveData, searchStateLiveData)
     val fileListLiveData: LiveData<Stateful<List<FileItem>>>
         get() = _fileListLiveData
     val fileListStateful: Stateful<List<FileItem>>
@@ -76,29 +182,35 @@ class FileListViewModel : ViewModel() {
         _fileListLiveData.reload()
     }
 
-    val searchViewExpandedLiveData = MutableLiveData(false)
+    private var searchExpandedSource: LiveData<Boolean>? = null
+    private val searchExpandedMediator = MediatorLiveData<Boolean>()
+    val searchViewExpandedLiveData: LiveData<Boolean> = searchExpandedMediator
     var isSearchViewExpanded: Boolean
-        get() = searchViewExpandedLiveData.valueCompat
+        get() = searchExpandedMediator.valueCompat
         set(value) {
-            if (searchViewExpandedLiveData.valueCompat == value) {
+            val liveData = active.searchViewExpandedLiveData
+            if (liveData.valueCompat == value) {
                 return
             }
-            searchViewExpandedLiveData.value = value
+            liveData.value = value
         }
 
-    private val _searchViewQueryLiveData = MutableLiveData("")
+    private var searchQuerySource: LiveData<String>? = null
+    private val searchQueryMediator = MediatorLiveData<String>()
     var searchViewQuery: String
-        get() = _searchViewQueryLiveData.valueCompat
+        get() = active.searchViewQueryLiveData.valueCompat
         set(value) {
-            if (_searchViewQueryLiveData.valueCompat == value) {
+            val liveData = active.searchViewQueryLiveData
+            if (liveData.valueCompat == value) {
                 return
             }
-            _searchViewQueryLiveData.value = value
+            liveData.value = value
         }
 
-    val breadcrumbLiveData: LiveData<BreadcrumbData> = BreadcrumbLiveData(trailLiveData)
+    private val _breadcrumbLiveData = BreadcrumbLiveData()
+    val breadcrumbLiveData: LiveData<BreadcrumbData> = _breadcrumbLiveData
     val canNavigateUpBreadcrumb: Boolean
-        get() = breadcrumbLiveData.valueCompat.selectedIndex > 0
+        get() = _breadcrumbLiveData.valueCompat.selectedIndex > 0
 
     private val _viewTypeLiveData = FileViewTypeLiveData(currentPathLiveData)
     val viewTypeLiveData: LiveData<FileViewType> = _viewTypeLiveData
@@ -141,55 +253,58 @@ class FileListViewModel : ViewModel() {
 
     var isCreateFileNameEditInitialized: Boolean = false
 
-    private val _selectedFilesLiveData = MutableLiveData(fileItemSetOf())
-    val selectedFilesLiveData: LiveData<FileItemSet>
-        get() = _selectedFilesLiveData
+    private var selectedSource: LiveData<FileItemSet>? = null
+    private val selectedMediator = MediatorLiveData<FileItemSet>()
+    val selectedFilesLiveData: LiveData<FileItemSet> = selectedMediator
     val selectedFiles: FileItemSet
-        get() = _selectedFilesLiveData.valueCompat
+        get() = selectedMediator.valueCompat
 
     fun selectFile(file: FileItem, selected: Boolean) {
         selectFiles(fileItemSetOf(file), selected)
     }
 
     fun selectFiles(files: FileItemSet, selected: Boolean) {
-        val selectedFiles = _selectedFilesLiveData.valueCompat
-        if (selectedFiles === files) {
-            if (!selected && selectedFiles.isNotEmpty()) {
-                selectedFiles.clear()
-                _selectedFilesLiveData.value = selectedFiles
+        val selectedFiles = active.selectedFilesLiveData
+        val selectedFileSet = selectedFiles.valueCompat
+        if (selectedFileSet === files) {
+            if (!selected && selectedFileSet.isNotEmpty()) {
+                selectedFileSet.clear()
+                selectedFiles.value = selectedFileSet
             }
             return
         }
         var changed = false
         for (file in files) {
             changed = changed or if (selected) {
-                selectedFiles.add(file)
+                selectedFileSet.add(file)
             } else {
-                selectedFiles.remove(file)
+                selectedFileSet.remove(file)
             }
         }
         if (changed) {
-            _selectedFilesLiveData.value = selectedFiles
+            selectedFiles.value = selectedFileSet
         }
     }
 
     fun replaceSelectedFiles(files: FileItemSet) {
-        val selectedFiles = _selectedFilesLiveData.valueCompat
-        if (selectedFiles == files) {
+        val selectedFiles = active.selectedFilesLiveData
+        val selectedFileSet = selectedFiles.valueCompat
+        if (selectedFileSet == files) {
             return
         }
-        selectedFiles.clear()
-        selectedFiles.addAll(files)
-        _selectedFilesLiveData.value = selectedFiles
+        selectedFileSet.clear()
+        selectedFileSet.addAll(files)
+        selectedFiles.value = selectedFileSet
     }
 
     fun clearSelectedFiles() {
-        val selectedFiles = _selectedFilesLiveData.valueCompat
-        if (selectedFiles.isEmpty()) {
+        val selectedFiles = active.selectedFilesLiveData
+        val selectedFileSet = selectedFiles.valueCompat
+        if (selectedFileSet.isEmpty()) {
             return
         }
-        selectedFiles.clear()
-        _selectedFilesLiveData.value = selectedFiles
+        selectedFileSet.clear()
+        selectedFiles.value = selectedFileSet
     }
 
     val pasteStateLiveData: LiveData<PasteState> = _pasteStateLiveData
@@ -235,37 +350,148 @@ class FileListViewModel : ViewModel() {
 
     override fun onCleared() {
         _fileListLiveData.close()
+        for (tab in tabs) {
+            tab.closeList()
+        }
     }
 
+    private fun rebind() {
+        val tab = active
+        _fileListLiveData.suspendUpdates()
+        try {
+            trailSource = retarget(currentPathMediator, trailSource, tab.trailLiveData) {
+                currentPathMediator.value = it.currentPath
+            }
+            tab.trailLiveData.value?.let { currentPathMediator.value = it.currentPath }
+            searchSource = retarget(searchStateMediator, searchSource, tab.searchStateLiveData) {
+                searchStateMediator.value = it
+            }
+            tab.searchStateLiveData.value?.let { searchStateMediator.value = it }
+            searchExpandedSource = retarget(
+                searchExpandedMediator, searchExpandedSource, tab.searchViewExpandedLiveData
+            ) { searchExpandedMediator.value = it }
+            tab.searchViewExpandedLiveData.value?.let { searchExpandedMediator.value = it }
+            searchQuerySource = retarget(
+                searchQueryMediator, searchQuerySource, tab.searchViewQueryLiveData
+            ) { searchQueryMediator.value = it }
+            tab.searchViewQueryLiveData.value?.let { searchQueryMediator.value = it }
+            selectedSource = retarget(selectedMediator, selectedSource, tab.selectedFilesLiveData) {
+                selectedMediator.value = it
+            }
+            tab.selectedFilesLiveData.value?.let { selectedMediator.value = it }
+            _breadcrumbLiveData.setTrail(tab.trailLiveData)
+        } finally {
+            _fileListLiveData.resumeUpdates()
+        }
+        publishTabs()
+    }
+
+    private fun <S, T> retarget(
+        mediator: MediatorLiveData<T>,
+        previous: LiveData<S>?,
+        next: LiveData<S>,
+        onChanged: (S) -> Unit
+    ): LiveData<S> {
+        if (previous === next) {
+            return next
+        }
+        if (previous != null) {
+            mediator.removeSource(previous)
+        }
+        mediator.addSource(next, onChanged)
+        return next
+    }
+
+    private fun publishTabs() {
+        _tabsLiveData.value = FileTabs(
+            tabs.map { it.id },
+            tabs.map { it.trailLiveData.valueCompat.currentPath },
+            activeIndex
+        )
+    }
+
+    private class FileTab(val id: Long) {
+        val trailLiveData = TrailLiveData()
+        val searchStateLiveData = MutableLiveData(SearchState(false, ""))
+        val searchViewExpandedLiveData = MutableLiveData(false)
+        val searchViewQueryLiveData = MutableLiveData("")
+        val selectedFilesLiveData = MutableLiveData(fileItemSetOf())
+        var listLiveData: CloseableLiveData<Stateful<List<FileItem>>>? = null
+        var listKey: ListKey? = null
+
+        fun closeList() {
+            listLiveData?.close()
+            listLiveData = null
+            listKey = null
+        }
+    }
+
+    private data class ListKey(val path: Path, val searching: Boolean, val query: String)
+
     companion object {
+        const val MAX_TABS = 10
+
         private val _pasteStateLiveData = MutableLiveData(PasteState())
     }
 
-    private class FileListSwitchMapLiveData(
+    private inner class FileListSwitchMapLiveData(
         private val pathLiveData: LiveData<Path>,
         private val searchStateLiveData: LiveData<SearchState>
     ) : MediatorLiveData<Stateful<List<FileItem>>>(), Closeable {
         private var liveData: CloseableLiveData<Stateful<List<FileItem>>>? = null
+        private var updatesSuspended = false
 
         init {
             addSource(pathLiveData) { updateSource() }
             addSource(searchStateLiveData) { updateSource() }
         }
 
-        private fun updateSource() {
-            liveData?.let {
-                removeSource(it)
-                it.close()
+        fun suspendUpdates() {
+            updatesSuspended = true
+        }
+
+        fun resumeUpdates() {
+            updatesSuspended = false
+            if (hasActiveObservers()) {
+                updateSource()
             }
+        }
+
+        private fun updateSource() {
+            if (updatesSuspended || pathLiveData.value == null || searchStateLiveData.value == null) {
+                return
+            }
+            if (activeIndex < 0) {
+                return
+            }
+            val tab = active
             val path = pathLiveData.valueCompat
             val searchState = searchStateLiveData.valueCompat
-            val liveData = if (searchState.isSearching) {
-                SearchFileListLiveData(path, searchState.query)
+            val key = if (searchState.isSearching) {
+                ListKey(searchState.directory ?: path, true, searchState.query)
+            } else {
+                ListKey(path, false, "")
+            }
+            val existing = tab.listLiveData
+            if (existing != null && tab.listKey == key) {
+                if (liveData !== existing) {
+                    liveData?.let { removeSource(it) }
+                    liveData = existing
+                    addSource(existing) { value = it }
+                }
+                return
+            }
+            existing?.close()
+            val created = if (searchState.isSearching) {
+                SearchFileListLiveData(key.path, searchState.query)
             } else {
                 FileListLiveData(path)
             }
-            this.liveData = liveData
-            addSource(liveData) { value = it }
+            tab.listLiveData = created
+            tab.listKey = key
+            liveData?.let { removeSource(it) }
+            liveData = created
+            addSource(created) { value = it }
         }
 
         fun reload() {
@@ -284,3 +510,9 @@ class FileListViewModel : ViewModel() {
         }
     }
 }
+
+data class FileTabs(
+    val ids: List<Long>,
+    val paths: List<Path>,
+    val selectedIndex: Int
+)

@@ -47,6 +47,8 @@ class FileListAdapter(
 ) : AnimatedListAdapter<FileItem, FileListAdapter.ViewHolder>(CALLBACK), PopupTextProvider {
     private var isSearching = false
 
+    private var searchDirectory: Path? = null
+
     private lateinit var _viewType: FileViewType
     var viewType: FileViewType
         get() = _viewType
@@ -153,12 +155,40 @@ class FileListAdapter(
         throw UnsupportedOperationException()
     }
 
-    fun replaceListAndIsSearching(list: List<FileItem>, isSearching: Boolean) {
+    fun replaceListAndIsSearching(
+        list: List<FileItem>,
+        isSearching: Boolean,
+        searchDirectory: Path?
+    ) {
         val clear = this.isSearching != isSearching
         this.isSearching = isSearching
+        this.searchDirectory = if (isSearching) searchDirectory else null
         val sortedList = if (!isSearching) list.sortedWith(sortOptions.createComparator()) else list
         super.replace(sortedList, clear)
         rebuildFilePositionMap()
+    }
+
+    private fun relativeParentPath(path: Path): String? {
+        val root = searchDirectory ?: return null
+        return try {
+            val rootText = root.toString().trimEnd('/')
+            val full = path.toString()
+            val rest = when {
+                rootText.isEmpty() -> full.trimStart('/')
+                full.startsWith("$rootText/") -> full.removePrefix("$rootText/")
+                else -> return null
+            }
+            val slash = rest.lastIndexOf('/')
+            if (slash <= 0) null else rest.substring(0, slash)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun ellipsizeStart(text: String, view: TextView): CharSequence {
+        val width = view.width.takeIf { it > 0 }
+            ?: (96 * view.resources.displayMetrics.density).toInt()
+        return TextUtils.ellipsize(text, view.paint, width.toFloat(), TextUtils.TruncateAt.START)
     }
 
     private fun rebuildFilePositionMap() {
@@ -316,16 +346,35 @@ class FileListAdapter(
                 setImageDrawable(null)
             }
         }
-        holder.nameText.text = file.name
-        holder.descriptionText?.text = if (isDirectory) {
+        val parentPath = relativeParentPath(path)
+        val description = holder.descriptionText
+        val details = if (isDirectory || description == null) {
             null
         } else {
-            val context = holder.descriptionText!!.context
+            val context = description.context
             val lastModificationTime = attributes.lastModifiedTime().toInstant()
                 .formatShort(context)
             val size = attributes.fileSize.formatHumanReadable(context)
             val descriptionSeparator = context.getString(R.string.file_item_description_separator)
             listOf(lastModificationTime, size).joinToString(descriptionSeparator)
+        }
+        if (description == null) {
+            holder.nameText.ellipsize = TextUtils.TruncateAt.END
+            holder.nameText.text = if (parentPath != null) {
+                file.name + "\n" + ellipsizeStart(parentPath, holder.nameText)
+            } else {
+                file.name
+            }
+        } else {
+            holder.nameText.text = file.name
+            description.ellipsize = TextUtils.TruncateAt.END
+            description.text = when {
+                parentPath == null -> details
+                details == null -> parentPath
+                else -> parentPath + description.context.getString(
+                    R.string.file_item_description_separator
+                ) + details
+            }
         }
         val isArchivePath = path.isArchivePath
         menu.findItem(R.id.action_copy)

@@ -76,7 +76,13 @@ class FileListLiveData(private val path: Path) : CloseableLiveData<Stateful<List
         }
     }
 
+    private var closed = false
+
     override fun close() {
+        if (closed) {
+            return
+        }
+        closed = true
         observer.close()
         future?.cancel(true)
     }

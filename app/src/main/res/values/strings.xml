@@ -296,6 +296,7 @@
     <string name="file_list_action_sort_directories_first">Folders first</string>
     <string name="file_list_action_view_sort_path_specific">Only for this folder</string>
     <string name="file_list_action_new_task">New window</string>
+    <string name="file_list_action_new_tab">New tab</string>
     <string name="file_list_action_navigate_up">Go up</string>
     <string name="file_list_action_navigate_to">Go to</string>
     <string name="file_list_navigate_to_title" translatable="false">@string/file_list_action_navigate_to</string>
@@ -306,6 +307,9 @@
     <string name="file_list_action_create_shortcut">Create shortcut</string>
     <string name="file_list_breadcrumb_action_copy_path" translatable="false">@string/file_list_action_copy_path</string>
     <string name="file_list_breadcrumb_action_open_in_new_task">Open in new window</string>
+    <string name="file_list_breadcrumb_action_open_in_new_tab">Open in new tab</string>
+    <string name="file_list_tab_close">Close tab</string>
+    <string name="file_list_tabs_full">Can\'t open more than 10 tabs</string>
     <string name="file_list_select_title_format">%1$,d</string>
     <string name="file_list_select_action_extract" translatable="false">@string/file_item_action_extract</string>
     <string name="file_list_select_action_archive" translatable="false">@string/file_item_action_archive</string>
