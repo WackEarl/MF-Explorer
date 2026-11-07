@@ -72,6 +72,8 @@ import me.zhanghai.android.files.file.extension
 import me.zhanghai.android.files.file.fileProviderUri
 import me.zhanghai.android.files.file.isApk
 import me.zhanghai.android.files.file.isImage
+import me.zhanghai.android.files.filejob.FileJobProgress
+import me.zhanghai.android.files.filejob.FileJobProgressDialogFragment
 import me.zhanghai.android.files.filejob.FileJobService
 import me.zhanghai.android.files.filelist.FileSortOptions.By
 import me.zhanghai.android.files.filelist.FileSortOptions.Order
@@ -185,6 +187,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     private var updatingTabs = false
 
+    private var fileJobsVisible = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -202,6 +206,14 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
+
+        FileJobProgress.snapshots.observe(viewLifecycleOwner) {
+            val visible = FileJobProgress.current().isNotEmpty()
+            if (visible != fileJobsVisible) {
+                fileJobsVisible = visible
+                activity?.invalidateOptionsMenu()
+            }
+        }
 
         if (savedInstanceState == null) {
             navigationFragment = NavigationFragment()
@@ -587,6 +599,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         updateSelectAllMenuItem()
         updateShowHiddenFilesMenuItem()
         updateNewTabMenuItem()
+        menuBinding.fileJobsItem.isVisible = FileJobProgress.current().isNotEmpty()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -598,6 +611,10 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                         !Settings.FILE_LIST_PERSISTENT_DRAWER_OPEN.valueCompat
                     )
                 }
+                true
+            }
+            R.id.action_file_jobs -> {
+                FileJobProgressDialogFragment.show(this)
                 true
             }
             R.id.action_view_list -> {
@@ -1890,6 +1907,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     private class MenuBinding private constructor(
         val menu: Menu,
         val searchItem: MenuItem,
+        val fileJobsItem: MenuItem,
         val viewSortItem: MenuItem,
         val viewListItem: MenuItem,
         val viewGridItem: MenuItem,
@@ -1908,7 +1926,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             fun inflate(menu: Menu, inflater: MenuInflater): MenuBinding {
                 inflater.inflate(R.menu.file_list, menu)
                 return MenuBinding(
-                    menu, menu.findItem(R.id.action_search), menu.findItem(R.id.action_view_sort),
+                    menu, menu.findItem(R.id.action_search),
+                    menu.findItem(R.id.action_file_jobs),
+                    menu.findItem(R.id.action_view_sort),
                     menu.findItem(R.id.action_view_list), menu.findItem(R.id.action_view_grid),
                     menu.findItem(R.id.action_sort_by_name),
                     menu.findItem(R.id.action_sort_by_type),

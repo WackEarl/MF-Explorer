@@ -70,6 +70,7 @@
     <string name="notification_channel_background_activity_start_description">Take actions while app is in the background</string>
     <string name="notification_channel_file_job_name">File operations</string>
     <string name="notification_channel_file_job_description">Display and control file operations</string>
+    <string name="file_job_progress_title">File operations</string>
     <string name="notification_channel_ftp_server_name">FTP server</string>
     <string name="notification_channel_ftp_server_description">Display and control the FTP server</string>
 

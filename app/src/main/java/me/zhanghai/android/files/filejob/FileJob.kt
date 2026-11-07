@@ -28,7 +28,11 @@ abstract class FileJob {
             e.printStackTrace()
             service.showToast(e.toString())
         } finally {
-            service.notificationManager.cancel(id)
+            try {
+                service.notificationManager.cancel(id)
+            } finally {
+                FileJobProgress.remove(id)
+            }
         }
     }
 

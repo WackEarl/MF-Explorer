@@ -133,6 +133,7 @@ private fun FileJob.postNotification(
         setSubText(subText)
         setContentInfo(info)
         setProgress(max, progress, indeterminate)
+        FileJobProgress.upsert(id, title, text, max, progress, indeterminate, showCancel)
         // TODO
         //setContentIntent()
         if (showCancel) {

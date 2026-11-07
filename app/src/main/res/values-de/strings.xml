@@ -69,6 +69,7 @@
     <string name="notification_channel_background_activity_start_description">Aktionen ausführen während die App im Hintergrund läuft</string>
     <string name="notification_channel_file_job_name">Dateioperationen</string>
     <string name="notification_channel_file_job_description">Anzeigen und Steuern von Dateioperationen</string>
+    <string name="file_job_progress_title">Dateivorgänge</string>
     <string name="notification_channel_ftp_server_name">FTP-Server</string>
     <string name="notification_channel_ftp_server_description">Anzeigen und Steuern des FTP-Servers</string>
 
