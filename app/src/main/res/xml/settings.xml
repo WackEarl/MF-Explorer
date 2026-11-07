@@ -114,4 +114,17 @@
             android:summary="@string/settings_cache_remote_files_on_disk_summary"
             android:defaultValue="@bool/pref_default_value_cache_remote_files_on_disk" />
     </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_transfer_title">
+
+        <Preference
+            android:key="@string/pref_key_settings_export"
+            android:title="@string/settings_export_title"
+            android:summary="@string/settings_export_summary" />
+
+        <Preference
+            android:key="@string/pref_key_settings_import"
+            android:title="@string/settings_import_title"
+            android:summary="@string/settings_import_summary" />
+    </PreferenceCategory>
 </PreferenceScreen>

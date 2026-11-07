@@ -85,4 +85,6 @@
     <bool name="pref_default_value_read_remote_files_for_thumbnail">true</bool>
     <string name="pref_key_cache_remote_files_on_disk">key_cache_remote_files_on_disk</string>
     <bool name="pref_default_value_cache_remote_files_on_disk">true</bool>
+    <string name="pref_key_settings_export">key_settings_export</string>
+    <string name="pref_key_settings_import">key_settings_import</string>
 </resources>

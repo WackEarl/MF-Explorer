@@ -46,6 +46,43 @@ internal object HostKeys : HostKeyVerifier {
         }
     }
 
+    internal fun exportText(): String? =
+        synchronized(this) {
+            restoreBackup()
+            if (!file.isFile) null else file.readText()
+        }
+
+    internal fun replaceText(text: String?) {
+        synchronized(this) {
+            restoreBackup()
+            if (text == null) {
+                file.delete()
+                return
+            }
+            val temporary = File(file.parentFile, "${file.name}.tmp")
+            val backup = File(file.parentFile, "${file.name}.bak")
+            temporary.writeText(text)
+            if (file.exists()) {
+                if (backup.exists() && !backup.delete()) {
+                    temporary.delete()
+                    throw java.io.IOException("Could not replace ${file.name}")
+                }
+                if (!file.renameTo(backup)) {
+                    temporary.delete()
+                    throw java.io.IOException("Could not replace ${file.name}")
+                }
+            }
+            if (!temporary.renameTo(file)) {
+                if (backup.exists()) {
+                    backup.renameTo(file)
+                }
+                temporary.delete()
+                throw java.io.IOException("Could not replace ${file.name}")
+            }
+            backup.delete()
+        }
+    }
+
     override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
 
     private fun fingerprint(key: PublicKey): String {
@@ -53,7 +90,15 @@ internal object HostKeys : HostKeyVerifier {
         return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
+    private fun restoreBackup() {
+        val backup = File(file.parentFile, "${file.name}.bak")
+        if (!file.exists() && backup.isFile) {
+            backup.renameTo(file)
+        }
+    }
+
     private fun read(): Properties {
+        restoreBackup()
         val properties = Properties()
         val hostKeys = file
         if (hostKeys.isFile) {

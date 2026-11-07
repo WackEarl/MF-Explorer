@@ -690,6 +690,16 @@
     <string name="settings_read_remote_files_for_thumbnail_title">Remote-Dateien für Miniaturansichten lesen</string>
     <string name="settings_cache_remote_files_on_disk_title">Vorschaubilder entfernter Dateien auf der Platte speichern</string>
     <string name="settings_cache_remote_files_on_disk_summary">Die Vorschau bleibt so oder so im Arbeitsspeicher. Aus: entfernte Bilder landen nicht im Platten-Cache, und der ganze Vorschaubild-Cache wird gelöscht</string>
+    <string name="settings_transfer_title">Einstellungsdatei</string>
+    <string name="settings_export_title">Exportieren</string>
+    <string name="settings_export_summary">Schreibt Einstellungen, Server, Tabs und Ordneransicht in eine Datei</string>
+    <string name="settings_export_password_warning">Diese Datei enthält die Server-Passwörter, das Passwort des eigenen FTP-Servers, private SFTP-Schlüssel samt Passphrase und WebDAV-Zugangstoken im Klartext. Wer die Datei hat, kann sie lesen.</string>
+    <string name="settings_export_success">Einstellungen exportiert</string>
+    <string name="settings_import_title">Importieren</string>
+    <string name="settings_import_summary">Ersetzt die Einstellungen auf diesem Gerät. Die App schließt sich danach</string>
+    <string name="settings_import_confirm">Einstellungen, Server, Lesezeichen, Tabs und Ordneransicht auf diesem Gerät ersetzen? Die App schließt sich.</string>
+    <string name="settings_transfer_invalid">Das ist keine Einstellungsdatei dieser App</string>
+    <string name="settings_transfer_unsupported">Diese Einstellungsdatei nutzt ein neueres Format und kann nicht gelesen werden</string>
 
     <string name="about_title">Über</string>
     <string name="about_fork_summary">Ein Fork von Material Files. NFSv3 mit Pipeline-Lesevorgängen, Ordner-Tabs, die einen Neustart überstehen, und Dateivorgänge in der Leiste.</string>
