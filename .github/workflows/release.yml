@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v2.1.1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.tag || github.ref }}
+        submodules: true
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+    - name: Check that the tag matches versionName
+      run: |
+        VERSION=$(sed -n "s/^ *versionName '\(.*\)'/\1/p" app/build.gradle)
+        test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match versionName $VERSION"; exit 1; }
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+    - name: Write keystore
+      env:
+        SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
+      run: echo "$SIGNING_KEYSTORE" | base64 -d > signing.jks
+    - name: Build release APK
+      env:
+        STORE_FILE: signing.jks
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      run: ./gradlew assembleRelease
+    - name: Remove keystore
+      if: always()
+      run: rm -f signing.jks
+    - name: Upload APK to the release
+      run: |
+        APK="MF-Explorer-$VERSION.apk"
+        cp app/build/outputs/apk/release/app-release.apk "$APK"
+        # Prefer an existing (draft) release for this tag, else create a draft.
+        RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
+        if [ -n "$RELEASE_ID" ]; then
+          URL=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .upload_url | sed 's/{.*}//')
+          gh api -X POST "$URL?name=$APK" -H "Content-Type: application/vnd.android.package-archive" --input "$APK" > /dev/null
+        else
+          gh release create "$TAG" "$APK" --draft --title "MF Explorer $VERSION" --generate-notes
+        fi
