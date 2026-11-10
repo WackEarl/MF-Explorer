@@ -561,6 +561,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     val tab = tabLayout.newTab()
                     tab.tag = id
                     tab.customView = createTabView(id, tabTitle(tabs.paths[index]), showClose)
+                    // A long-clickable custom view would swallow the taps that select the tab,
+                    // so listen on the tab view itself.
+                    tab.view.setOnLongClickListener {
+                        viewModel.tabPath(id)?.let { addBookmark(it) }
+                        true
+                    }
                     tabLayout.addTab(tab, index == tabs.selectedIndex)
                 }
             } else {
@@ -593,10 +599,6 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             if (viewModel.closeTab(id)) {
                 syncSearchView()
             }
-        }
-        tabBinding.root.setOnLongClickListener {
-            viewModel.tabPath(id)?.let { addBookmark(it) }
-            true
         }
         return tabBinding.root
     }
