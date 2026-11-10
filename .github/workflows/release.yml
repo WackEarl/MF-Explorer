@@ -35,24 +35,58 @@ jobs:
         VERSION=$(sed -n "s/^ *versionName '\(.*\)'/\1/p" app/build.gradle)
         test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match versionName $VERSION"; exit 1; }
         echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-    - name: Write keystore
+    - name: Write signing files
       env:
         SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
-      run: echo "$SIGNING_KEYSTORE" | base64 -d > signing.jks
+        SIGNING_LINEAGE: ${{ secrets.SIGNING_LINEAGE }}
+        OLD_SIGNING_KEYSTORE: ${{ secrets.OLD_SIGNING_KEYSTORE }}
+      run: |
+        umask 077
+        echo "$SIGNING_KEYSTORE" | base64 -d > "$RUNNER_TEMP/signing.jks"
+        echo "$SIGNING_LINEAGE" | base64 -d > "$RUNNER_TEMP/signing.lineage"
+        echo "$OLD_SIGNING_KEYSTORE" | base64 -d > "$RUNNER_TEMP/old-signing.jks"
     - name: Build release APK
       env:
-        STORE_FILE: signing.jks
+        STORE_FILE: ${{ runner.temp }}/signing.jks
         STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.STORE_PASSWORD }}
       run: ./gradlew assembleRelease
-    - name: Remove keystore
+    # minSdk is 23, but key rotation (APK Signature Scheme v3) only works on API 28+.
+    # So v1/v2 stay signed with the original key for older devices, and v3 is signed
+    # with the new key plus the lineage that proves the rotation from the original key.
+    - name: Sign APK with the rotated key
+      env:
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        OLD_STORE_PASSWORD: ${{ secrets.OLD_STORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      run: |
+        APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+        "$APKSIGNER" version
+        APK="MF-Explorer-$VERSION.apk"
+        "$APKSIGNER" sign --in app/build/outputs/apk/release/app-release.apk --out "$APK" \
+          --lineage "$RUNNER_TEMP/signing.lineage" --rotation-min-sdk-version 28 \
+          --ks "$RUNNER_TEMP/old-signing.jks" --ks-key-alias "$KEY_ALIAS" \
+          --ks-pass env:OLD_STORE_PASSWORD --key-pass env:OLD_STORE_PASSWORD \
+          --next-signer --ks "$RUNNER_TEMP/signing.jks" --ks-key-alias "$KEY_ALIAS" \
+          --ks-pass env:STORE_PASSWORD --key-pass env:STORE_PASSWORD
+        # Capture first: grep -q on a pipe could kill apksigner with SIGPIPE under pipefail.
+        "$APKSIGNER" verify "$APK"
+        OLD_CERTS=$("$APKSIGNER" verify --print-certs --min-sdk-version 23 --max-sdk-version 27 "$APK" 2> /dev/null)
+        NEW_CERTS=$("$APKSIGNER" verify --print-certs --min-sdk-version 28 "$APK" 2> /dev/null)
+        LINEAGE=$("$APKSIGNER" lineage --in "$APK" --print-certs)
+        grep -q 'V2 Signer: certificate SHA-256 digest: 13449bbaf37140b3e6c47024c0370c08c629c4d3c74ba0b0a31117ea9647ae4b' <<< "$OLD_CERTS" \
+          || { echo "v1/v2 signature is not the original key"; exit 1; }
+        grep -q 'V3.0 Signer: certificate SHA-256 digest: ea2699b22fd3fc3a5ebbfed66ecfa5e489d052d2a302408dae5d94c13ccb6372' <<< "$NEW_CERTS" \
+          || { echo "v3 signature is not the new key"; exit 1; }
+        grep -q 'Signer #1 in lineage certificate SHA-256 digest: 13449bbaf37140b3e6c47024c0370c08c629c4d3c74ba0b0a31117ea9647ae4b' <<< "$LINEAGE" \
+          || { echo "Lineage does not start with the original key"; exit 1; }
+    - name: Remove signing files
       if: always()
-      run: rm -f signing.jks
+      run: rm -f "$RUNNER_TEMP/signing.jks" "$RUNNER_TEMP/signing.lineage" "$RUNNER_TEMP/old-signing.jks"
     - name: Upload APK to the release
       run: |
         APK="MF-Explorer-$VERSION.apk"
-        cp app/build/outputs/apk/release/app-release.apk "$APK"
         # Prefer an existing (draft) release for this tag, else create a draft.
         RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
         if [ -n "$RELEASE_ID" ]; then
