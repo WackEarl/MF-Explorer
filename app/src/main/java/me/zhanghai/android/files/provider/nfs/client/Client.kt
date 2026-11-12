@@ -32,7 +32,10 @@ internal object Client {
         val lock: ReentrantLock = ReentrantLock(),
         var files: Int = 0,
         var alive: Boolean = true
-    )
+    ) {
+        /** Lets a non-pipeline read give way to a list, open or stat waiting for [lock]. */
+        val gate = WaiterGate(lock)
+    }
 
     interface Path {
         val authority: Authority
@@ -101,9 +104,14 @@ internal object Client {
      * or close would apply twice or use a file handle from the destroyed
      * context.
      */
+    /**
+     * @param waiter list, open and stat: a non-pipeline read does not take the mount lock
+     * while one of these is waiting for it.
+     */
     private inline fun <R> use(
         authority: Authority,
         replay: Boolean = false,
+        waiter: Boolean = false,
         block: (Mount) -> R
     ): R {
         checkThread()
@@ -116,7 +124,11 @@ internal object Client {
                 firstFailure?.let { e.addSuppressed(it) }
                 throw e
             }
-            mount.lock.lock()
+            if (waiter) {
+                mount.gate.lockAsWaiter()
+            } else {
+                mount.lock.lock()
+            }
             try {
                 if (!mount.alive) {
                     continue
@@ -173,12 +185,17 @@ internal object Client {
     private inline fun <R> useExisting(
         authority: Authority,
         requireSession: Boolean = true,
+        yieldToWaiters: Boolean = false,
         block: (Mount) -> R
     ): R {
         checkThread()
         val mount = synchronized(mounts) { mounts[authority] }
             ?: throw exception(OsConstants.EIO, "NFS connection closed")
-        mount.lock.lock()
+        if (yieldToWaiters) {
+            mount.gate.lockYieldingToWaiters()
+        } else {
+            mount.lock.lock()
+        }
         try {
             if (!mount.alive || mount.context == 0L) {
                 throw exception(OsConstants.EIO, "NFS connection closed")
@@ -269,7 +286,7 @@ internal object Client {
     }
 
     fun list(directory: NfsPath): List<NfsPath> =
-        use(directory.authority, replay = true) { mount ->
+        use(directory.authority, replay = true, waiter = true) { mount ->
             val names = ArrayList<ByteArray>()
             val stats = ArrayList<LongArray>()
             check(
@@ -291,7 +308,7 @@ internal object Client {
         if (noFollowLinks && path is NfsPath) {
             path.takeListedStat()?.let { return it }
         }
-        return use(path.authority, replay = true) { mount ->
+        return use(path.authority, replay = true, waiter = true) { mount ->
             val values = NfsNative.stat(mount.context, path.remoteBytes, noFollowLinks)
                 ?: throw error(mount.context, "")
             if (values[0] < 0) {
@@ -393,7 +410,8 @@ internal object Client {
             path.authority,
             // A lost reply did not hand back a handle. O_EXCL is the exception:
             // the create may have landed and a retry would turn it into EEXIST.
-            replay = flags and OsConstants.O_EXCL == 0
+            replay = flags and OsConstants.O_EXCL == 0,
+            waiter = true
         ) { mount ->
             val opened = NfsNative.open(mount.context, path.remoteBytes, flags, mode)
             if (opened == 0L) {
@@ -419,7 +437,8 @@ internal object Client {
         offset: Long,
         pipeline: Boolean
     ): Int =
-        useExisting(path.authority) { mount ->
+        // Bulk reads do not yield. A copy can still hold up a listing for one pipeline read.
+        useExisting(path.authority, yieldToWaiters = !pipeline) { mount ->
             val rc = NfsNative.pread(mount.context, file, buffer, buffer.size, offset, pipeline)
             check(mount.context, rc, "")
             rc
