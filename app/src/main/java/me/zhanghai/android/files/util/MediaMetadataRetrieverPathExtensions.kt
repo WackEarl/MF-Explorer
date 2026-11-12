@@ -10,6 +10,7 @@ import android.media.MediaMetadataRetriever
 import java.io.IOException
 import java.nio.ByteBuffer
 import java8.nio.channels.SeekableByteChannel
+import java8.nio.file.OpenOption
 import java8.nio.file.Path
 import me.zhanghai.android.files.provider.common.newByteChannel
 import me.zhanghai.android.files.provider.document.isDocumentPath
@@ -20,7 +21,8 @@ import me.zhanghai.android.files.provider.linux.isLinuxPath
 val Path.isMediaMetadataRetrieverCompatible: Boolean
     get() = !isFtpPath
 
-fun MediaMetadataRetriever.setDataSource(path: Path) {
+/** [options] only apply to a path read through a byte channel. */
+fun MediaMetadataRetriever.setDataSource(path: Path, vararg options: OpenOption) {
     when {
         path.isLinuxPath -> setDataSource(path.toFile().path)
         path.isDocumentPath ->
@@ -28,7 +30,7 @@ fun MediaMetadataRetriever.setDataSource(path: Path) {
                 .use { pfd -> setDataSource(pfd.fileDescriptor) }
         else -> {
             val channel = try {
-                path.newByteChannel()
+                path.newByteChannel(*options)
             } catch (e: IOException) {
                 throw IllegalArgumentException(e)
             }

@@ -386,7 +386,8 @@ internal object Client {
         flags: Int,
         mode: Int,
         append: Boolean,
-        deleteOnClose: Boolean
+        deleteOnClose: Boolean,
+        pipeline: Boolean = true
     ): SeekableByteChannel {
         val file = use(
             path.authority,
@@ -404,12 +405,22 @@ internal object Client {
         if (flags and OsConstants.O_CREAT != 0) {
             LocalWatchService.onEntryCreated(path)
         }
-        return FileByteChannel(path, file, append, deleteOnClose)
+        return FileByteChannel(path, file, append, deleteOnClose, pipeline)
     }
 
-    internal fun pread(path: Path, file: Long, buffer: ByteArray, offset: Long): Int =
+    /**
+     * @param pipeline false for one synchronous READ that neither feeds nor uses the sequential
+     * read pipeline, and leaves slots a copy already has in flight alone.
+     */
+    internal fun pread(
+        path: Path,
+        file: Long,
+        buffer: ByteArray,
+        offset: Long,
+        pipeline: Boolean
+    ): Int =
         useExisting(path.authority) { mount ->
-            val rc = NfsNative.pread(mount.context, file, buffer, buffer.size, offset)
+            val rc = NfsNative.pread(mount.context, file, buffer, buffer.size, offset, pipeline)
             check(mount.context, rc, "")
             rc
         }

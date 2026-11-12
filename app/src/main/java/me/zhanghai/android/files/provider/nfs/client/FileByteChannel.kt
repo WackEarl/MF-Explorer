@@ -17,7 +17,9 @@ internal class FileByteChannel(
     private val path: NfsPath,
     private val file: Long,
     private val append: Boolean,
-    private val deleteOnClose: Boolean
+    private val deleteOnClose: Boolean,
+    // Fixed at open. A thumbnail read must not feed or reset a copy's pipeline.
+    private val pipeline: Boolean
 ) : AbstractFileByteChannel(append) {
     private var written = false
     private var nativeClosed = false
@@ -68,7 +70,7 @@ internal class FileByteChannel(
         }
         val bytes = ByteArray(size)
         val read = try {
-            Client.pread(path, file, bytes, position)
+            Client.pread(path, file, bytes, position, pipeline)
         } catch (e: ClientException) {
             throw e.toFileSystemException(path.toString())
         }

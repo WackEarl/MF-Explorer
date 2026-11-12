@@ -40,6 +40,7 @@ import me.zhanghai.android.files.provider.document.isDocumentPath
 import me.zhanghai.android.files.provider.document.resolver.DocumentResolver
 import me.zhanghai.android.files.provider.ftp.isFtpPath
 import me.zhanghai.android.files.provider.linux.isLinuxPath
+import me.zhanghai.android.files.provider.nfs.thumbnailOpenOptions
 import me.zhanghai.android.files.settings.Settings
 import me.zhanghai.android.files.util.getDimensionPixelSize
 import me.zhanghai.android.files.util.getPackageArchiveInfoCompat
@@ -52,7 +53,6 @@ import okio.buffer
 import okio.source
 import java.io.Closeable
 import java.io.IOException
-import me.zhanghai.android.files.util.setDataSource as appSetDataSource
 
 class PathAttributesKeyer : Keyer<Pair<Path, BasicFileAttributes>> {
     override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String {
@@ -66,7 +66,6 @@ class PathAttributesFetcher(
     private val options: Options,
     private val imageLoader: ImageLoader,
     private val appIconFetcherFactory: AppIconFetcher.Factory<Path>,
-    private val videoFrameFetcherFactory: VideoFrameFetcher.Factory<Path>,
     private val pdfPageFetcherFactory: PdfPageFetcher.Factory<Path>
 ) : Fetcher {
     override suspend fun fetch(): FetchResult? {
@@ -104,6 +103,9 @@ class PathAttributesFetcher(
                 }
             }
         }
+        // A thumbnail read stays out of the NFS read pipeline. The option is stored on the
+        // channel at open, which also covers the image bytes Coil reads later on another thread.
+        val openOptions = if (isThumbnail) path.thumbnailOpenOptions else emptyArray()
         val mimeType = AndroidFileTypeDetector.getMimeType(data.first, data.second).asMimeType()
         when {
             mimeType.isApk && path.isGetPackageArchiveInfoCompatible -> {
@@ -114,7 +116,7 @@ class PathAttributesFetcher(
                 }
             }
             mimeType.isImage || mimeType == MimeType.GENERIC -> {
-                val inputStream = path.newInputStream()
+                val inputStream = path.newInputStream(*openOptions)
                 return SourceResult(
                     ImageSource(inputStream.source().buffer(), options.context),
                     if (mimeType != MimeType.GENERIC) mimeType.value else null, path.dataSource
@@ -123,7 +125,7 @@ class PathAttributesFetcher(
             mimeType.isMedia && path.isMediaMetadataRetrieverCompatible -> {
                 val embeddedPicture = try {
                     MediaMetadataRetriever().use { retriever ->
-                        retriever.setDataSource(path)
+                        retriever.setDataSource(path, *openOptions)
                         retriever.embeddedPicture
                     }
                 } catch (e: Exception) {
@@ -139,7 +141,8 @@ class PathAttributesFetcher(
                 }
                 if (mimeType.isVideo) {
                     try {
-                        return videoFrameFetcherFactory.create(path, options, imageLoader).fetch()
+                        return VideoFrameFetcher(options) { setDataSource(path, *openOptions) }
+                            .fetch()
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -173,12 +176,6 @@ class PathAttributesFetcher(
             }
         }
 
-        private val videoFrameFetcherFactory = object : VideoFrameFetcher.Factory<Path>() {
-            override fun MediaMetadataRetriever.setDataSource(data: Path) {
-                appSetDataSource(data)
-            }
-        }
-
         private val pdfPageFetcherFactory = object : PdfPageFetcher.Factory<Path>() {
             override fun openParcelFileDescriptor(data: Path): ParcelFileDescriptor =
                 when {
@@ -196,8 +193,7 @@ class PathAttributesFetcher(
             imageLoader: ImageLoader
         ): Fetcher =
             PathAttributesFetcher(
-                data, options, imageLoader, appIconFetcherFactory, videoFrameFetcherFactory,
-                pdfPageFetcherFactory
+                data, options, imageLoader, appIconFetcherFactory, pdfPageFetcherFactory
             )
     }
 }
