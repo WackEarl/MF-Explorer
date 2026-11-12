@@ -118,7 +118,11 @@ class PathAttributesFetcher(
                 }
             }
             mimeType.isImage || mimeType == MimeType.GENERIC -> {
-                val inputStream = path.newInputStream(*openOptions)
+                val inputStream = if (isThumbnail) {
+                    NfsThumbnailReads.newInputStream(path, *openOptions)
+                } else {
+                    path.newInputStream(*openOptions)
+                }
                 return SourceResult(
                     ImageSource(inputStream.source().buffer(), options.context),
                     if (mimeType != MimeType.GENERIC) mimeType.value else null, path.dataSource
