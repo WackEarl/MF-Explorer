@@ -348,15 +348,21 @@ class FileListAdapter(
         }
         val parentPath = relativeParentPath(path)
         val description = holder.descriptionText
-        val details = if (isDirectory || description == null) {
+        val details = if (description == null) {
             null
         } else {
             val context = description.context
             val lastModificationTime = attributes.lastModifiedTime().toInstant()
                 .formatShort(context)
-            val size = attributes.fileSize.formatHumanReadable(context)
-            val descriptionSeparator = context.getString(R.string.file_item_description_separator)
-            listOf(lastModificationTime, size).joinToString(descriptionSeparator)
+            if (isDirectory) {
+                // A directory's size is the inode size, not its contents.
+                lastModificationTime
+            } else {
+                val size = attributes.fileSize.formatHumanReadable(context)
+                val descriptionSeparator =
+                    context.getString(R.string.file_item_description_separator)
+                listOf(lastModificationTime, size).joinToString(descriptionSeparator)
+            }
         }
         if (description == null) {
             holder.nameText.ellipsize = TextUtils.TruncateAt.END
