@@ -105,8 +105,8 @@ internal object Client {
      * context.
      */
     /**
-     * @param waiter list, open and stat: a non-pipeline read does not take the mount lock
-     * while one of these is waiting for it.
+     * @param waiter list, stat and an open outside a thumbnail: a non-pipeline read does not
+     * take the mount lock while one of these is waiting for it.
      */
     private inline fun <R> use(
         authority: Authority,
@@ -411,7 +411,9 @@ internal object Client {
             // A lost reply did not hand back a handle. O_EXCL is the exception:
             // the create may have landed and a retry would turn it into EEXIST.
             replay = flags and OsConstants.O_EXCL == 0,
-            waiter = true
+            // A thumbnail open is not a waiter. Otherwise thumbnail reads would only make
+            // way for other thumbnails, and a listing would still queue behind them.
+            waiter = pipeline
         ) { mount ->
             val opened = NfsNative.open(mount.context, path.remoteBytes, flags, mode)
             if (opened == 0L) {

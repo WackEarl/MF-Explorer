@@ -6,6 +6,7 @@
 package me.zhanghai.android.files.provider.nfs.client
 
 import me.zhanghai.android.files.provider.common.AbstractFileByteChannel
+import me.zhanghai.android.files.provider.common.AbstractFileByteChannel.Companion.DEFAULT_READ_BLOCK_SIZE
 import me.zhanghai.android.files.provider.common.LocalWatchService
 import me.zhanghai.android.files.provider.nfs.NfsPath
 import java.io.IOException
@@ -20,7 +21,12 @@ internal class FileByteChannel(
     private val deleteOnClose: Boolean,
     // Fixed at open. A thumbnail read must not feed or reset a copy's pipeline.
     private val pipeline: Boolean
-) : AbstractFileByteChannel(append) {
+) : AbstractFileByteChannel(
+    append,
+    // A thumbnail read holds the mount lock for one block, and a listing that waits for the
+    // lock gets it after that block.
+    readBlockSize = if (pipeline) DEFAULT_READ_BLOCK_SIZE else THUMBNAIL_READ_BLOCK_SIZE
+) {
     private var written = false
     private var nativeClosed = false
     private val writeBuffer = ByteArray(WRITE_BUFFER_SIZE)
@@ -205,5 +211,6 @@ internal class FileByteChannel(
 
     companion object {
         private const val WRITE_BUFFER_SIZE = 1024 * 1024
+        private const val THUMBNAIL_READ_BLOCK_SIZE = 256 * 1024
     }
 }

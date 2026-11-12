@@ -12,8 +12,9 @@ import me.zhanghai.android.files.provider.nfs.client.Authority
 /**
  * Reads on a channel opened with [NO_READ_PIPELINE] are single synchronous READs. They neither
  * feed nor use the sequential read pipeline, so a short-lived reader such as a thumbnail cannot
- * disturb a copy that has reads in flight on the same mount, and they give way to a listing,
- * open or stat that is waiting for the mount.
+ * disturb a copy that has reads in flight on the same mount. They read in smaller blocks and
+ * give way to a listing, stat or other open that is waiting for the mount; their own open does
+ * not make other thumbnail reads wait.
  *
  * Fixed at open because Coil reads image bytes later, on another thread.
  */

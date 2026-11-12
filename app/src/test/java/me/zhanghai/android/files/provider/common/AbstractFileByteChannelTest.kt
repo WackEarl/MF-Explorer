@@ -15,8 +15,11 @@ import java.util.concurrent.Future
 class AbstractFileByteChannelTest {
     private class FakeChannel(
         private val data: ByteArray,
-        readExactAfterSeek: Boolean = true
-    ) : AbstractFileByteChannel(false, readExactAfterSeek = readExactAfterSeek) {
+        readExactAfterSeek: Boolean = true,
+        readBlockSize: Int = MB
+    ) : AbstractFileByteChannel(
+        false, readExactAfterSeek = readExactAfterSeek, readBlockSize = readBlockSize
+    ) {
         /** (position, size) of every read the channel issued, prefetches included. */
         val issued = mutableListOf<Pair<Long, Int>>()
 
@@ -129,6 +132,18 @@ class AbstractFileByteChannelTest {
         val channel = FakeChannel(data, readExactAfterSeek = false)
         channel.readAt(3L * MB, 4096)
         assertEquals(listOf(3L * MB to MB), channel.issued.take(1))
+    }
+
+    @Test
+    fun smallerBlockSizeLimitsEveryRead() {
+        val channel = FakeChannel(data, readBlockSize = 256 * 1024)
+        val read = ByteBuffer.allocate(MB)
+        assertEquals(256 * 1024, channel.read(read))
+        assertArrayEquals(expected(MB, 256 * 1024), channel.readAt(MB.toLong(), 300 * 1024))
+        assertEquals(
+            listOf(0L to 256 * 1024, 256L * 1024 to 256 * 1024, MB.toLong() to 256 * 1024),
+            channel.issued
+        )
     }
 
     @Test

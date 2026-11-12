@@ -29,7 +29,9 @@ abstract class AbstractFileByteChannel(
     private val joinCancelledRead: Boolean = false,
     // False where every read costs a new transfer, so a short read after a seek
     // would only add a request before the next full block.
-    private val readExactAfterSeek: Boolean = true
+    private val readExactAfterSeek: Boolean = true,
+    // Bytes per read. A smaller block holds a shared connection for a shorter time.
+    private val readBlockSize: Int = DEFAULT_READ_BLOCK_SIZE
 ) : ForceableChannel, SeekableByteChannel {
     private var position = 0L
     private val readBuffer = ReadBuffer()
@@ -225,7 +227,7 @@ abstract class AbstractFileByteChannel(
     protected open fun onClose() {}
 
     private inner class ReadBuffer : Closeable {
-        private val buffer = ByteBuffer.allocate(BUFFER_SIZE).apply { limit(0) }
+        private val buffer = ByteBuffer.allocate(readBlockSize).apply { limit(0) }
         private var bufferedPosition = 0L
 
         private var pendingRead: Future<ByteBuffer>? = null
@@ -278,7 +280,7 @@ abstract class AbstractFileByteChannel(
             // read followed by its body, so that takes one request instead of two.
             val future = onReadAsync(
                 bufferedPosition,
-                size.coerceAtLeast(SEEK_READ_MIN).coerceAtMost(BUFFER_SIZE),
+                size.coerceAtLeast(SEEK_READ_MIN).coerceAtMost(readBlockSize),
                 TIMEOUT_MILLIS
             )
             fillBuffer(future)
@@ -312,7 +314,7 @@ abstract class AbstractFileByteChannel(
         }
 
         private fun readIntoBufferAsync(): Future<ByteBuffer> =
-            onReadAsync(bufferedPosition, BUFFER_SIZE, TIMEOUT_MILLIS)
+            onReadAsync(bufferedPosition, readBlockSize, TIMEOUT_MILLIS)
 
         fun reposition(oldPosition: Long, newPosition: Long) {
             if (newPosition == oldPosition) {
@@ -358,7 +360,7 @@ abstract class AbstractFileByteChannel(
     }
 
     companion object {
-        private const val BUFFER_SIZE = 1024 * 1024
+        const val DEFAULT_READ_BLOCK_SIZE = 1024 * 1024
         private const val SEEK_READ_MIN = 64 * 1024
         private const val TIMEOUT_MILLIS = 15_000L
     }
