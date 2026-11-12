@@ -94,21 +94,20 @@ object WalkFileTreeSearchable {
         }
     }
 
-    // Breadth-first. A symlink under [start] is followed even when the target
-    // lies outside [start]. That target is then its own root: real directories
-    // under it are searched, and a further symlink may not leave it. A link to
-    // the export root therefore cannot walk into a second tree, and the same
-    // directory is never listed twice.
+    // Breadth-first. A symlink is followed only when the end of its chain stays
+    // inside [start]. A link that leaves [start], including one to the export
+    // root or to a parent, is skipped, so search never covers more than the
+    // folder being searched. The walk uses real target paths, and each
+    // directory is listed once, so a link back up the tree cannot loop.
     @Throws(IOException::class)
     private fun walkFileTreeForSearch(start: Path, visitor: FileVisitor<in Path>): Path {
-        val pending = ArrayDeque<WalkDirectory>()
-        pending.add(WalkDirectory(start, start))
+        val pending = ArrayDeque<Path>()
+        pending.add(start)
         val seen = HashSet<String>()
         while (pending.isNotEmpty()) {
             throwIfInterrupted()
-            val item = pending.removeFirst()
-            val directory = item.path
-            if (directory != item.root && !directory.startsWith(item.root)) {
+            val directory = pending.removeFirst()
+            if (!directory.startsWith(start)) {
                 continue
             }
             if (!seen.add(directory.toString())) {
@@ -126,7 +125,7 @@ object WalkFileTreeSearchable {
                 if (childName == "." || childName == "..") {
                     continue
                 }
-                if (!child.startsWith(item.root)) {
+                if (!child.startsWith(start)) {
                     continue
                 }
                 val attributes = try {
@@ -139,30 +138,24 @@ object WalkFileTreeSearchable {
                 }
                 visitor.visitFile(child, attributes)
                 when {
-                    attributes.isDirectory -> pending.add(WalkDirectory(child, item.root))
+                    attributes.isDirectory -> pending.add(child)
                     attributes.isSymbolicLink -> {
                         val target = child.followLink() ?: continue
-                        val root = linkRoot(item.root, target.path, start) ?: continue
+                        // Skip a link that leaves the folder being searched.
+                        if (!target.path.startsWith(start)) {
+                            continue
+                        }
                         if (target.path != start) {
                             visitor.visitFile(target.path, attributes)
                         }
                         if (target.isDirectory) {
-                            pending.add(WalkDirectory(target.path, root))
+                            pending.add(target.path)
                         }
                     }
                 }
             }
         }
         return start
-    }
-
-    // [current] is the root the link was found in. A link inside [start] may
-    // name a new root. A link that is already outside [start] may not.
-    private fun linkRoot(current: Path, target: Path, start: Path): Path? = when {
-        target.startsWith(start) -> start
-        target.startsWith(current) -> current
-        current == start -> target
-        else -> null
     }
 
     // The link itself is already visited. The returned path is the first real
@@ -218,10 +211,9 @@ object WalkFileTreeSearchable {
         }
     }
 
-    // libnfs stops at the same count while following a link.
-    private const val MAX_SYMBOLIC_LINKS = 40
-
-    private class WalkDirectory(val path: Path, val root: Path)
+    // A chain of links stops after a few hops. Each hop is a readlink and a
+    // stat on the server.
+    private const val MAX_SYMBOLIC_LINKS = 8
 
     private class FollowedLink(val path: Path, val isDirectory: Boolean)
 }
