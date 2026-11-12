@@ -11,7 +11,6 @@ import android.os.Build
 import java.time.Duration
 import java8.nio.file.Path
 import me.zhanghai.android.files.compat.METADATA_KEY_SAMPLERATE
-import me.zhanghai.android.files.compat.use
 import me.zhanghai.android.files.fileproperties.PathObserverLiveData
 import me.zhanghai.android.files.fileproperties.extractMetadataNotBlank
 import me.zhanghai.android.files.util.Failure
@@ -20,6 +19,7 @@ import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
+import me.zhanghai.android.files.util.withMediaMetadataRetrieverBlocking
 
 class AudioInfoLiveData(path: Path) : PathObserverLiveData<Stateful<AudioInfo>>(path) {
     init {
@@ -31,7 +31,7 @@ class AudioInfoLiveData(path: Path) : PathObserverLiveData<Stateful<AudioInfo>>(
         value = Loading(value?.value)
         AsyncTask.THREAD_POOL_EXECUTOR.execute {
             val value = try {
-                val audioInfo = MediaMetadataRetriever().use { retriever ->
+                val audioInfo = withMediaMetadataRetrieverBlocking { retriever ->
                     retriever.setDataSource(path)
                     val title = retriever.extractMetadataNotBlank(
                         MediaMetadataRetriever.METADATA_KEY_TITLE

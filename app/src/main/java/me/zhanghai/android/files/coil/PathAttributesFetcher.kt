@@ -7,7 +7,6 @@ package me.zhanghai.android.files.coil
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.media.MediaMetadataRetriever
 import android.os.ParcelFileDescriptor
 import androidx.core.graphics.drawable.toDrawable
 import coil.ImageLoader
@@ -21,8 +20,10 @@ import coil.request.Options
 import coil.size.Dimension
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import me.zhanghai.android.files.R
-import me.zhanghai.android.files.compat.use
 import me.zhanghai.android.files.file.MimeType
 import me.zhanghai.android.files.file.asMimeType
 import me.zhanghai.android.files.file.isApk
@@ -49,6 +50,7 @@ import me.zhanghai.android.files.util.isMediaMetadataRetrieverCompatible
 import me.zhanghai.android.files.util.runWithCancellationSignal
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
+import me.zhanghai.android.files.util.withMediaMetadataRetriever
 import okio.buffer
 import okio.source
 import java.io.Closeable
@@ -123,29 +125,49 @@ class PathAttributesFetcher(
                 )
             }
             mimeType.isMedia && path.isMediaMetadataRetrieverCompatible -> {
-                val embeddedPicture = try {
-                    MediaMetadataRetriever().use { retriever ->
-                        retriever.setDataSource(path, *openOptions)
-                        retriever.embeddedPicture
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
-                if (embeddedPicture != null) {
-                    return SourceResult(
-                        ImageSource(
-                            embeddedPicture.inputStream().source().buffer(), options.context
-                        ), null, path.dataSource
-                    )
-                }
-                if (mimeType.isVideo) {
-                    try {
-                        return VideoFrameFetcher(options) { setDataSource(path, *openOptions) }
-                            .fetch()
+                // One retriever for the embedded picture and the frame: setting the data source
+                // parses the container, which is the expensive part on a remote file.
+                val job = currentCoroutineContext()[Job]
+                val result = withMediaMetadataRetriever { retriever ->
+                    currentCoroutineContext().ensureActive()
+                    val isSet = try {
+                        retriever.setDataSource(path, *openOptions) { job?.isActive == false }
+                        true
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        false
                     }
+                    currentCoroutineContext().ensureActive()
+                    if (!isSet) {
+                        return@withMediaMetadataRetriever null
+                    }
+                    val embeddedPicture = try {
+                        retriever.embeddedPicture
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        null
+                    }
+                    if (embeddedPicture != null) {
+                        return@withMediaMetadataRetriever SourceResult(
+                            ImageSource(
+                                embeddedPicture.inputStream().source().buffer(), options.context
+                            ), null, path.dataSource
+                        )
+                    }
+                    if (!mimeType.isVideo) {
+                        return@withMediaMetadataRetriever null
+                    }
+                    currentCoroutineContext().ensureActive()
+                    try {
+                        retriever.decodeVideoFrame(options)
+                    } catch (e: Exception) {
+                        currentCoroutineContext().ensureActive()
+                        e.printStackTrace()
+                        null
+                    }
+                }
+                if (result != null) {
+                    return result
                 }
             }
             mimeType.isPdf && (path.isLinuxPath || path.isDocumentPath) -> {

@@ -21,8 +21,16 @@ import me.zhanghai.android.files.provider.linux.isLinuxPath
 val Path.isMediaMetadataRetrieverCompatible: Boolean
     get() = !isFtpPath
 
-/** [options] only apply to a path read through a byte channel. */
-fun MediaMetadataRetriever.setDataSource(path: Path, vararg options: OpenOption) {
+/**
+ * [options] and [isCancelled] only apply to a path read through a byte channel. Once
+ * [isCancelled] returns true, every read fails at once, so the retriever stops instead of
+ * reading a file nobody waits for any more.
+ */
+fun MediaMetadataRetriever.setDataSource(
+    path: Path,
+    vararg options: OpenOption,
+    isCancelled: () -> Boolean = { false }
+) {
     when {
         path.isLinuxPath -> setDataSource(path.toFile().path)
         path.isDocumentPath ->
@@ -34,14 +42,25 @@ fun MediaMetadataRetriever.setDataSource(path: Path, vararg options: OpenOption)
             } catch (e: IOException) {
                 throw IllegalArgumentException(e)
             }
-            setDataSource(PathMediaDataSource(channel))
+            setDataSource(PathMediaDataSource(channel, isCancelled))
         }
     }
 }
 
-private class PathMediaDataSource(private val channel: SeekableByteChannel) : MediaDataSource() {
+private class PathMediaDataSource(
+    private val channel: SeekableByteChannel,
+    private val isCancelled: () -> Boolean
+) : MediaDataSource() {
+    @Volatile
+    private var isClosed = false
+
     @Throws(IOException::class)
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        // The media server may still read after release() or a cancelled request. -1 ends
+        // that read without another round trip.
+        if (isClosed || isCancelled()) {
+            return -1
+        }
         channel.position(position)
         return channel.read(ByteBuffer.wrap(buffer, offset, size))
     }
@@ -53,6 +72,7 @@ private class PathMediaDataSource(private val channel: SeekableByteChannel) : Me
 
     @Throws(IOException::class)
     override fun close() {
+        isClosed = true
         channel.close()
     }
 }
