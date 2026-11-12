@@ -18,6 +18,7 @@ import java8.nio.file.WatchService
 import me.zhanghai.android.files.provider.common.ByteString
 import me.zhanghai.android.files.provider.common.ByteStringListPath
 import me.zhanghai.android.files.provider.common.LocalWatchService
+import me.zhanghai.android.files.provider.common.MountAbsoluteLink
 import me.zhanghai.android.files.provider.common.UriAuthority
 import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.nfs.client.Authority
@@ -27,7 +28,7 @@ import me.zhanghai.android.files.util.readParcelable
 import java.io.File
 import java.io.IOException
 
-internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path {
+internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path, MountAbsoluteLink {
     private val fileSystem: NfsFileSystem
 
     constructor(fileSystem: NfsFileSystem, path: ByteString) : super(NfsFileSystem.SEPARATOR, path) {
@@ -101,6 +102,27 @@ internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path {
 
     override val authority: Authority
         get() = fileSystem.authority
+
+    override fun mountAbsoluteLink(target: ByteString): NfsPath? {
+        if (target.isEmpty() || target[0] != NfsFileSystem.SEPARATOR) {
+            return null
+        }
+        val export = authority.export
+        if (export.isEmpty() || export == "/") {
+            return null
+        }
+        val prefix = export.toByteString()
+        if (!target.startsWith(prefix)) {
+            return null
+        }
+        if (target.length == prefix.length) {
+            return fileSystem.rootDirectory
+        }
+        if (target[prefix.length] != NfsFileSystem.SEPARATOR) {
+            return null
+        }
+        return createPath(target.substring(prefix.length)).normalize()
+    }
 
     override val remoteBytes: ByteArray
         get() = toByteString().toBytes()
