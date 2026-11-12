@@ -10,7 +10,6 @@ import android.os.AsyncTask
 import android.util.Size
 import java.time.Duration
 import java8.nio.file.Path
-import me.zhanghai.android.files.compat.use
 import me.zhanghai.android.files.fileproperties.PathObserverLiveData
 import me.zhanghai.android.files.fileproperties.date
 import me.zhanghai.android.files.fileproperties.extractMetadataNotBlank
@@ -21,6 +20,7 @@ import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
+import me.zhanghai.android.files.util.withMediaMetadataRetrieverBlocking
 
 class VideoInfoLiveData(path: Path) : PathObserverLiveData<Stateful<VideoInfo>>(path) {
     init {
@@ -32,7 +32,7 @@ class VideoInfoLiveData(path: Path) : PathObserverLiveData<Stateful<VideoInfo>>(
         value = Loading(value?.value)
         AsyncTask.THREAD_POOL_EXECUTOR.execute {
             val value = try {
-                val videoInfo = MediaMetadataRetriever().use { retriever ->
+                val videoInfo = withMediaMetadataRetrieverBlocking { retriever ->
                     retriever.setDataSource(path)
                     val title = retriever.extractMetadataNotBlank(
                         MediaMetadataRetriever.METADATA_KEY_TITLE

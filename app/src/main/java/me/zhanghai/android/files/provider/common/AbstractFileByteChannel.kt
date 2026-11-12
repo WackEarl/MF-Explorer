@@ -26,7 +26,12 @@ import java.util.concurrent.Future
 abstract class AbstractFileByteChannel(
     private val isAppend: Boolean,
     private val shouldCancelRead: Boolean = true,
-    private val joinCancelledRead: Boolean = false
+    private val joinCancelledRead: Boolean = false,
+    // False where every read costs a new transfer, so a short read after a seek
+    // would only add a request before the next full block.
+    private val readExactAfterSeek: Boolean = true,
+    // Bytes per read. A smaller block holds a shared connection for a shorter time.
+    private val readBlockSize: Int = DEFAULT_READ_BLOCK_SIZE
 ) : ForceableChannel, SeekableByteChannel {
     private var position = 0L
     private val readBuffer = ReadBuffer()
@@ -222,16 +227,28 @@ abstract class AbstractFileByteChannel(
     protected open fun onClose() {}
 
     private inner class ReadBuffer : Closeable {
-        private val buffer = ByteBuffer.allocate(BUFFER_SIZE).apply { limit(0) }
+        private val buffer = ByteBuffer.allocate(readBlockSize).apply { limit(0) }
         private var bufferedPosition = 0L
 
         private var pendingRead: Future<ByteBuffer>? = null
         private val pendingReadLock = Any()
 
+        // Set when position() landed outside the buffer. The next fill reads only
+        // what the caller asked for, at least SEEK_READ_MIN, and does not prefetch.
+        // An empty buffer at the start, after a block was consumed, or after a
+        // write stays a full sequential read, so small sequential reads still get
+        // whole blocks.
+        private var isSeek = false
+
         @Throws(IOException::class)
         fun read(destination: ByteBuffer): Int {
             if (!buffer.hasRemaining()) {
-                readIntoBuffer()
+                if (isSeek) {
+                    isSeek = false
+                    readIntoBufferExact(destination.remaining())
+                } else {
+                    readIntoBuffer()
+                }
                 if (!buffer.hasRemaining()) {
                     return -1
                 }
@@ -249,6 +266,29 @@ abstract class AbstractFileByteChannel(
             val future = synchronized(pendingReadLock) {
                 pendingRead?.also { pendingRead = null }
             } ?: readIntoBufferAsync()
+            if (!fillBuffer(future)) {
+                return
+            }
+            synchronized(pendingReadLock) {
+                pendingRead = readIntoBufferAsync()
+            }
+        }
+
+        @Throws(IOException::class)
+        private fun readIntoBufferExact(size: Int) {
+            // A seek already dropped any prefetch. The floor covers a small header
+            // read followed by its body, so that takes one request instead of two.
+            val future = onReadAsync(
+                bufferedPosition,
+                size.coerceAtLeast(SEEK_READ_MIN).coerceAtMost(readBlockSize),
+                TIMEOUT_MILLIS
+            )
+            fillBuffer(future)
+        }
+
+        /** @return false at the end of the file. */
+        @Throws(IOException::class)
+        private fun fillBuffer(future: Future<ByteBuffer>): Boolean {
             val newBuffer = try {
                 future.get()
             } catch (e: CancellationException) {
@@ -267,16 +307,14 @@ abstract class AbstractFileByteChannel(
             buffer.put(newBuffer)
             buffer.flip()
             if (!buffer.hasRemaining()) {
-                return
+                return false
             }
             bufferedPosition += buffer.remaining()
-            synchronized(pendingReadLock) {
-                pendingRead = readIntoBufferAsync()
-            }
+            return true
         }
 
         private fun readIntoBufferAsync(): Future<ByteBuffer> =
-            onReadAsync(bufferedPosition, BUFFER_SIZE, TIMEOUT_MILLIS)
+            onReadAsync(bufferedPosition, readBlockSize, TIMEOUT_MILLIS)
 
         fun reposition(oldPosition: Long, newPosition: Long) {
             if (newPosition == oldPosition) {
@@ -287,6 +325,7 @@ abstract class AbstractFileByteChannel(
                 buffer.position(newBufferPosition.toInt())
             } else {
                 invalidate(newPosition)
+                isSeek = readExactAfterSeek
             }
         }
 
@@ -294,6 +333,7 @@ abstract class AbstractFileByteChannel(
             cancelPendingRead()
             buffer.limit(0)
             bufferedPosition = newPosition
+            isSeek = false
         }
 
         override fun close() {
@@ -320,7 +360,8 @@ abstract class AbstractFileByteChannel(
     }
 
     companion object {
-        private const val BUFFER_SIZE = 1024 * 1024
+        const val DEFAULT_READ_BLOCK_SIZE = 1024 * 1024
+        private const val SEEK_READ_MIN = 64 * 1024
         private const val TIMEOUT_MILLIS = 15_000L
     }
 }

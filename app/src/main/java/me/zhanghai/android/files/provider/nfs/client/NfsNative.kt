@@ -38,7 +38,8 @@ internal object NfsNative {
         file: Long,
         buffer: ByteArray,
         length: Int,
-        offset: Long
+        offset: Long,
+        pipeline: Boolean
     ): Int
 
     external fun pwrite(

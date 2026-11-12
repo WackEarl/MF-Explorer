@@ -972,7 +972,8 @@ JNIEXPORT jint JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pread(JNIEnv *env, jclass clazz,
                                                                   jlong context, jlong file,
                                                                   jbyteArray buffer, jint length,
-                                                                  jlong offset) {
+                                                                  jlong offset,
+                                                                  jboolean pipeline) {
     jbyte *bytes;
     int rc;
     (void) clazz;
@@ -986,8 +987,18 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pread(JNIEnv *env, 
         tls_errno = EINVAL;
         return -EINVAL;
     }
-    rc = pipe_pread(context_from(context), file_from(file), (char *) bytes, length,
-                     (uint64_t) offset);
+    if (pipeline) {
+        rc = pipe_pread(context_from(context), file_from(file), (char *) bytes, length,
+                         (uint64_t) offset);
+    } else {
+        /*
+         * One synchronous READ outside the pipeline: no pipe_note, no slot
+         * lookup, nothing freed or reset. Its nfs_service loop may complete
+         * slots a copy has in flight; pipe_cb only records their status.
+         */
+        rc = nfs_pread(context_from(context), file_from(file), (char *) bytes,
+                       (size_t) length, (uint64_t) offset);
+    }
     (*env)->ReleaseByteArrayElements(env, buffer, bytes, 0);
     return fail(rc);
 }

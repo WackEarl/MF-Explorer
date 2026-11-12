@@ -7,7 +7,6 @@ package me.zhanghai.android.files.coil
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.media.MediaMetadataRetriever
 import android.os.ParcelFileDescriptor
 import androidx.core.graphics.drawable.toDrawable
 import coil.ImageLoader
@@ -21,8 +20,10 @@ import coil.request.Options
 import coil.size.Dimension
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import me.zhanghai.android.files.R
-import me.zhanghai.android.files.compat.use
 import me.zhanghai.android.files.file.MimeType
 import me.zhanghai.android.files.file.asMimeType
 import me.zhanghai.android.files.file.isApk
@@ -40,6 +41,7 @@ import me.zhanghai.android.files.provider.document.isDocumentPath
 import me.zhanghai.android.files.provider.document.resolver.DocumentResolver
 import me.zhanghai.android.files.provider.ftp.isFtpPath
 import me.zhanghai.android.files.provider.linux.isLinuxPath
+import me.zhanghai.android.files.provider.nfs.thumbnailOpenOptions
 import me.zhanghai.android.files.settings.Settings
 import me.zhanghai.android.files.util.getDimensionPixelSize
 import me.zhanghai.android.files.util.getPackageArchiveInfoCompat
@@ -48,11 +50,11 @@ import me.zhanghai.android.files.util.isMediaMetadataRetrieverCompatible
 import me.zhanghai.android.files.util.runWithCancellationSignal
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
+import me.zhanghai.android.files.util.withMediaMetadataRetriever
 import okio.buffer
 import okio.source
 import java.io.Closeable
 import java.io.IOException
-import me.zhanghai.android.files.util.setDataSource as appSetDataSource
 
 class PathAttributesKeyer : Keyer<Pair<Path, BasicFileAttributes>> {
     override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String {
@@ -66,7 +68,6 @@ class PathAttributesFetcher(
     private val options: Options,
     private val imageLoader: ImageLoader,
     private val appIconFetcherFactory: AppIconFetcher.Factory<Path>,
-    private val videoFrameFetcherFactory: VideoFrameFetcher.Factory<Path>,
     private val pdfPageFetcherFactory: PdfPageFetcher.Factory<Path>
 ) : Fetcher {
     override suspend fun fetch(): FetchResult? {
@@ -104,6 +105,9 @@ class PathAttributesFetcher(
                 }
             }
         }
+        // A thumbnail read stays out of the NFS read pipeline. The option is stored on the
+        // channel at open, which also covers the image bytes Coil reads later on another thread.
+        val openOptions = if (isThumbnail) path.thumbnailOpenOptions else emptyArray()
         val mimeType = AndroidFileTypeDetector.getMimeType(data.first, data.second).asMimeType()
         when {
             mimeType.isApk && path.isGetPackageArchiveInfoCompatible -> {
@@ -114,35 +118,60 @@ class PathAttributesFetcher(
                 }
             }
             mimeType.isImage || mimeType == MimeType.GENERIC -> {
-                val inputStream = path.newInputStream()
+                val inputStream = if (isThumbnail) {
+                    NfsThumbnailReads.newInputStream(path, *openOptions)
+                } else {
+                    path.newInputStream(*openOptions)
+                }
                 return SourceResult(
                     ImageSource(inputStream.source().buffer(), options.context),
                     if (mimeType != MimeType.GENERIC) mimeType.value else null, path.dataSource
                 )
             }
             mimeType.isMedia && path.isMediaMetadataRetrieverCompatible -> {
-                val embeddedPicture = try {
-                    MediaMetadataRetriever().use { retriever ->
-                        retriever.setDataSource(path)
-                        retriever.embeddedPicture
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
-                if (embeddedPicture != null) {
-                    return SourceResult(
-                        ImageSource(
-                            embeddedPicture.inputStream().source().buffer(), options.context
-                        ), null, path.dataSource
-                    )
-                }
-                if (mimeType.isVideo) {
-                    try {
-                        return videoFrameFetcherFactory.create(path, options, imageLoader).fetch()
+                // One retriever for the embedded picture and the frame: setting the data source
+                // parses the container, which is the expensive part on a remote file.
+                val job = currentCoroutineContext()[Job]
+                val result = withMediaMetadataRetriever { retriever ->
+                    currentCoroutineContext().ensureActive()
+                    val isSet = try {
+                        retriever.setDataSource(path, *openOptions) { job?.isActive == false }
+                        true
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        false
                     }
+                    currentCoroutineContext().ensureActive()
+                    if (!isSet) {
+                        return@withMediaMetadataRetriever null
+                    }
+                    val embeddedPicture = try {
+                        retriever.embeddedPicture
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        null
+                    }
+                    if (embeddedPicture != null) {
+                        return@withMediaMetadataRetriever SourceResult(
+                            ImageSource(
+                                embeddedPicture.inputStream().source().buffer(), options.context
+                            ), null, path.dataSource
+                        )
+                    }
+                    if (!mimeType.isVideo) {
+                        return@withMediaMetadataRetriever null
+                    }
+                    currentCoroutineContext().ensureActive()
+                    try {
+                        retriever.decodeVideoFrame(options)
+                    } catch (e: Exception) {
+                        currentCoroutineContext().ensureActive()
+                        e.printStackTrace()
+                        null
+                    }
+                }
+                if (result != null) {
+                    return result
                 }
             }
             mimeType.isPdf && (path.isLinuxPath || path.isDocumentPath) -> {
@@ -173,12 +202,6 @@ class PathAttributesFetcher(
             }
         }
 
-        private val videoFrameFetcherFactory = object : VideoFrameFetcher.Factory<Path>() {
-            override fun MediaMetadataRetriever.setDataSource(data: Path) {
-                appSetDataSource(data)
-            }
-        }
-
         private val pdfPageFetcherFactory = object : PdfPageFetcher.Factory<Path>() {
             override fun openParcelFileDescriptor(data: Path): ParcelFileDescriptor =
                 when {
@@ -196,8 +219,7 @@ class PathAttributesFetcher(
             imageLoader: ImageLoader
         ): Fetcher =
             PathAttributesFetcher(
-                data, options, imageLoader, appIconFetcherFactory, videoFrameFetcherFactory,
-                pdfPageFetcherFactory
+                data, options, imageLoader, appIconFetcherFactory, pdfPageFetcherFactory
             )
     }
 }

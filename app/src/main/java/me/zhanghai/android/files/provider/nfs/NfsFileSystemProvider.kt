@@ -139,12 +139,15 @@ object NfsFileSystemProvider : FileSystemProvider(), PathObservableProvider, Sea
         vararg attributes: FileAttribute<*>
     ): SeekableByteChannel {
         file as? NfsPath ?: throw ProviderMismatchException(file.toString())
-        val openOptions = options.toOpenOptions()
+        val pipeline = NfsOpenOption.NO_READ_PIPELINE !in options
+        val openOptions = options.filterNot { it is NfsOpenOption }.toSet().toOpenOptions()
         val flags = openOptions.toNfsFlags()
         val mode = (PosixFileMode.fromAttributes(attributes) ?: PosixFileMode.CREATE_FILE_DEFAULT)
             .toInt()
         return try {
-            Client.openByteChannel(file, flags, mode, openOptions.append, openOptions.deleteOnClose)
+            Client.openByteChannel(
+                file, flags, mode, openOptions.append, openOptions.deleteOnClose, pipeline
+            )
         } catch (e: ClientException) {
             throw e.toFileSystemException(file.toString())
         }
