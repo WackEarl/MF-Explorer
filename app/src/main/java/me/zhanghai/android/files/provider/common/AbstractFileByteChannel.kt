@@ -232,9 +232,10 @@ abstract class AbstractFileByteChannel(
         private val pendingReadLock = Any()
 
         // Set when position() landed outside the buffer. The next fill reads only
-        // what the caller asked for and does not prefetch. An empty buffer at the
-        // start, after a block was consumed, or after a write stays a full
-        // sequential read, so small sequential reads still get whole blocks.
+        // what the caller asked for, at least SEEK_READ_MIN, and does not prefetch.
+        // An empty buffer at the start, after a block was consumed, or after a
+        // write stays a full sequential read, so small sequential reads still get
+        // whole blocks.
         private var isSeek = false
 
         @Throws(IOException::class)
@@ -273,9 +274,12 @@ abstract class AbstractFileByteChannel(
 
         @Throws(IOException::class)
         private fun readIntoBufferExact(size: Int) {
-            // A seek already dropped any prefetch.
+            // A seek already dropped any prefetch. The floor covers a small header
+            // read followed by its body, so that takes one request instead of two.
             val future = onReadAsync(
-                bufferedPosition, size.coerceIn(1, BUFFER_SIZE), TIMEOUT_MILLIS
+                bufferedPosition,
+                size.coerceAtLeast(SEEK_READ_MIN).coerceAtMost(BUFFER_SIZE),
+                TIMEOUT_MILLIS
             )
             fillBuffer(future)
         }
@@ -355,6 +359,7 @@ abstract class AbstractFileByteChannel(
 
     companion object {
         private const val BUFFER_SIZE = 1024 * 1024
+        private const val SEEK_READ_MIN = 64 * 1024
         private const val TIMEOUT_MILLIS = 15_000L
     }
 }

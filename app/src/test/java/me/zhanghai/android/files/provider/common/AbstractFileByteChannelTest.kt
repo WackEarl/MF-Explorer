@@ -70,10 +70,25 @@ class AbstractFileByteChannelTest {
     }
 
     @Test
-    fun seekOutsideBufferReadsExactSizeWithoutPrefetch() {
+    fun seekOutsideBufferReadsSmallBlockWithoutPrefetch() {
         val channel = FakeChannel(data)
         assertArrayEquals(expected(3 * MB, 4096), channel.readAt(3L * MB, 4096))
-        assertEquals(listOf(3L * MB to 4096), channel.issued)
+        assertEquals(listOf(3L * MB to SEEK_MIN), channel.issued)
+    }
+
+    @Test
+    fun seekReadLargerThanFloorIsExact() {
+        val channel = FakeChannel(data)
+        channel.readAt(3L * MB, 200 * 1024)
+        assertEquals(listOf(3L * MB to 200 * 1024), channel.issued)
+    }
+
+    @Test
+    fun headerThenBodyAfterSeekIsOneRequest() {
+        val channel = FakeChannel(data)
+        channel.readAt(2L * MB, 8)
+        assertArrayEquals(expected(2 * MB + 8, 4000), channel.readAt(2L * MB + 8, 4000))
+        assertEquals(listOf(2L * MB to SEEK_MIN), channel.issued)
     }
 
     @Test
@@ -87,10 +102,15 @@ class AbstractFileByteChannelTest {
     @Test
     fun adjacentReadAfterSeekIsSequential() {
         val channel = FakeChannel(data)
-        channel.readAt(2L * MB, 4096)
-        assertArrayEquals(expected(2 * MB + 4096, 100), channel.readAt(2L * MB + 4096, 100))
+        channel.readAt(2L * MB, SEEK_MIN)
+        assertArrayEquals(
+            expected(2 * MB + SEEK_MIN, 100), channel.readAt(2L * MB + SEEK_MIN, 100)
+        )
         assertEquals(
-            listOf(2L * MB to 4096, 2L * MB + 4096 to MB, 3L * MB + 4096 to MB), channel.issued
+            listOf(
+                2L * MB to SEEK_MIN, 2L * MB + SEEK_MIN to MB, 3L * MB + SEEK_MIN to MB
+            ),
+            channel.issued
         )
     }
 
@@ -120,5 +140,6 @@ class AbstractFileByteChannelTest {
 
     companion object {
         private const val MB = 1024 * 1024
+        private const val SEEK_MIN = 64 * 1024
     }
 }
