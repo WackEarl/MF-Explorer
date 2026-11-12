@@ -19,7 +19,8 @@ class FileByteChannel(
     private val releaseClient: (FTPClient) -> Unit,
     private val path: String,
     isAppend: Boolean
-) : AbstractFileByteChannel(isAppend, joinCancelledRead = true) {
+// Every FTP read is a new RETR, so a short read after a seek would only add one.
+) : AbstractFileByteChannel(isAppend, joinCancelledRead = true, readExactAfterSeek = false) {
     private val clientLock = Any()
 
     @Throws(IOException::class)
