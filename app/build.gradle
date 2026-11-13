@@ -126,6 +126,10 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     testImplementation 'junit:junit:4.13.2'
+    // InstantTaskExecutorRule for LiveData on the JVM.
+    testImplementation 'androidx.arch.core:core-testing:2.2.0'
+    // Only for tests that need a real Parcel or android.net.Uri.
+    testImplementation 'org.robolectric:robolectric:4.17'
 
     // kotlinx-coroutines-android depends on kotlin-stdlib-jdk8
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
