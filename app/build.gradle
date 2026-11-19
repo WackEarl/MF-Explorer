@@ -101,6 +101,12 @@ android {
             enableSplit = false
         }
     }
+    testOptions {
+        unitTests {
+            // For Robolectric tests that inflate AppCompat views.
+            includeAndroidResources = true
+        }
+    }
 }
 
 repositories {
@@ -126,6 +132,8 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     testImplementation 'junit:junit:4.13.2'
+    // Only for tests that need a real Android view hierarchy.
+    testImplementation 'org.robolectric:robolectric:4.17'
 
     // kotlinx-coroutines-android depends on kotlin-stdlib-jdk8
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
