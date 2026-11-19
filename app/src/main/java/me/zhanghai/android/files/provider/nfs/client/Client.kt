@@ -151,7 +151,7 @@ internal object Client {
                             continue
                         }
                     }
-                    throw e
+                    throw e.withCredentials(authority)
                 }
             } finally {
                 mount.lock.unlock()
@@ -251,6 +251,19 @@ internal object Client {
     private fun exception(errno: Int, message: String): ClientException {
         val err = if (errno != 0) errno else OsConstants.EIO
         return ClientException(err, message.takeIf { it.isNotEmpty() } ?: "NFS error $err")
+    }
+
+    /**
+     * AUTH_SYS sends the configured UID and GID as they are. With no_all_squash the server
+     * checks them against its own file owners, so a denied MKDIR or RMDIR is usually a server
+     * directory that this UID/GID may not write. Say which identity was refused.
+     */
+    private fun ClientException.withCredentials(authority: Authority): ClientException {
+        if (errno != OsConstants.EACCES && errno != OsConstants.EPERM) {
+            return this
+        }
+        return ClientException(errno, appendCredentials(message, authority.uid, authority.gid))
+            .also { it.stackTrace = stackTrace }
     }
 
     private fun ClientException.isTransportFailure(): Boolean {

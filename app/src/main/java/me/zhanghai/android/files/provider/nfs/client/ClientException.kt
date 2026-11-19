@@ -36,3 +36,9 @@ class ClientException(
             else -> FileSystemException(file, other, message)
         }.apply { initCause(this@ClientException) }
 }
+
+/** Adds the AUTH_SYS identity to an access error, e.g. "... NFS3ERR_ACCES(-13) (as UID 65534, GID 65534)". */
+internal fun appendCredentials(message: String?, uid: Int, gid: Int): String {
+    val suffix = "(as UID $uid, GID $gid)"
+    return if (message.isNullOrEmpty()) suffix else "$message $suffix"
+}
