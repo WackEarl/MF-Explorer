@@ -62,13 +62,16 @@ class CollapseActionViewOnBackPressedCallbackTest {
     fun replacesToolbarBackInvokedCallback() {
         // setSupportActionBar() lets the toolbar collapse action views ahead of the keyboard.
         assertTrue(toolbar.isBackInvokedCallbackEnabled)
-        CollapseActionViewOnBackPressedCallback(toolbar)
+        CollapseActionViewOnBackPressedCallback(toolbar, activity.onBackPressedDispatcher)
         assertFalse(toolbar.isBackInvokedCallbackEnabled)
     }
 
     @Test
     fun keepsQueryWhenSearchViewLosesFocus() {
-        val callback = CollapseActionViewOnBackPressedCallback(toolbar)
+        val callback = CollapseActionViewOnBackPressedCallback(
+            toolbar,
+            activity.onBackPressedDispatcher
+        )
         activity.onBackPressedDispatcher.addCallback(callback)
         searchItem.expandActionView()
         callback.isEnabled = true

@@ -229,6 +229,11 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val activity = requireActivity() as AppCompatActivity
         activity.setTitle(R.string.file_list_title)
         activity.setSupportActionBar(binding.toolbar)
+        binding.toolbar.setOnClickListener {
+            if (shouldShowCollapsedSearchSubtitle()) {
+                expandCollapsedSearch()
+            }
+        }
         overlayActionMode = OverlayToolbarActionMode(binding.overlayToolbar, binding.toolbar)
         bottomActionMode = PersistentBarLayoutToolbarActionMode(
             binding.persistentBarLayout, binding.bottomBarLayout, binding.bottomToolbar
@@ -386,7 +391,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         viewModel.currentPathLiveData.observe(viewLifecycleOwner) { onCurrentPathChanged(it) }
         viewModel.searchViewExpandedLiveData.observe(viewLifecycleOwner) {
-            onSearchViewExpandedChanged(it)
+            onSearchViewExpandedChanged()
         }
         viewModel.breadcrumbLiveData.observe(viewLifecycleOwner) {
             upCallback.isEnabled = viewModel.canNavigateUpBreadcrumb || viewModel.canCloseTab
@@ -541,6 +546,42 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     private fun hasActiveSearchQuery(): Boolean =
         viewModel.searchViewQuery.isNotEmpty() || viewModel.searchState.isSearching
 
+    private fun activeSearchQuery(): String =
+        CollapsedSearchSubtitle.query(
+            viewModel.searchViewQuery,
+            viewModel.searchState.query,
+            viewModel.searchState.isSearching
+        )
+
+    private fun shouldShowCollapsedSearchSubtitle(): Boolean =
+        CollapsedSearchSubtitle.shouldShow(viewModel.isSearchViewExpanded, activeSearchQuery())
+
+    private fun expandCollapsedSearch() {
+        if (this::menuBinding.isInitialized && !menuBinding.searchItem.isActionViewExpanded) {
+            menuBinding.searchItem.expandActionView()
+        }
+    }
+
+    private fun applyToolbarSubtitle(stateful: Stateful<List<FileItem>>, displayed: List<FileItem>?) {
+        val isSearching = viewModel.searchState.isSearching
+        val showSearch = shouldShowCollapsedSearchSubtitle()
+        binding.toolbar.isClickable = showSearch
+        when {
+            stateful is Failure -> binding.toolbar.setSubtitle(R.string.error)
+            isSearching && stateful !is Success -> binding.toolbar.setSubtitle(R.string.loading)
+            stateful is Loading -> binding.toolbar.setSubtitle(R.string.loading)
+            showSearch ->
+                binding.toolbar.subtitle =
+                    getString(R.string.file_list_search_query_subtitle, activeSearchQuery())
+            displayed != null -> binding.toolbar.subtitle = getSubtitle(displayed)
+        }
+    }
+
+    private fun updateToolbarSubtitle() {
+        val stateful = viewModel.fileListLiveData.value ?: return
+        applyToolbarSubtitle(stateful, stateful.value?.let { displayedFiles(it) })
+    }
+
     private fun updateSearchBackCallback() {
         if (!this::searchViewOnBackPressedCallback.isInitialized) {
             return
@@ -589,6 +630,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             applyingTab = false
         }
         updateSearchBackCallback()
+        updateToolbarSubtitle()
     }
 
     private fun onTabsChanged(tabs: FileTabs) {
@@ -821,21 +863,17 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         updateBottomToolbar()
     }
 
-    private fun onSearchViewExpandedChanged(expanded: Boolean) {
+    private fun onSearchViewExpandedChanged() {
         updateSearchBackCallback()
         updateViewSortMenuItems()
+        updateToolbarSubtitle()
     }
 
     private fun onFileListChanged(stateful: Stateful<List<FileItem>>) {
         val files = stateful.value
         val isSearching = viewModel.searchState.isSearching
         val displayed = files?.let { displayedFiles(it) }
-        when {
-            stateful is Failure -> binding.toolbar.setSubtitle(R.string.error)
-            isSearching && stateful !is Success -> binding.toolbar.setSubtitle(R.string.loading)
-            stateful is Loading -> binding.toolbar.setSubtitle(R.string.loading)
-            displayed != null -> binding.toolbar.subtitle = getSubtitle(displayed)
-        }
+        applyToolbarSubtitle(stateful, displayed)
         val hasFiles = !files.isNullOrEmpty()
         val searchRunning = isSearching && stateful !is Success && stateful !is Failure
         binding.searchProgress.fadeToVisibilityUnsafe(searchRunning, gone = true)
@@ -981,9 +1019,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val displayed = displayedFiles(files)
         val isSearching = viewModel.searchState.isSearching
         adapter.replaceListAndIsSearching(displayed, isSearching, searchDirectory())
-        if (stateful is Success || (isSearching && stateful !is Failure)) {
-            binding.toolbar.subtitle = getSubtitle(displayed)
-        }
+        applyToolbarSubtitle(stateful, displayed)
         if (stateful is Success) {
             binding.emptyView.fadeToVisibilityUnsafe(displayed.isEmpty())
         }

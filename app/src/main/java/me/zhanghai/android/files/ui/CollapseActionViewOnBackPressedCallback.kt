@@ -29,7 +29,7 @@ import androidx.appcompat.widget.Toolbar
  */
 class CollapseActionViewOnBackPressedCallback(
     private val toolbar: Toolbar,
-    private val dispatcher: OnBackPressedDispatcher? = null,
+    private val dispatcher: OnBackPressedDispatcher,
     private val hasActiveQuery: () -> Boolean = { false },
     private val clearQuery: () -> Unit = {}
 ) : OnBackPressedCallback(toolbar.hasExpandedActionView()) {
@@ -49,6 +49,6 @@ class CollapseActionViewOnBackPressedCallback(
             return
         }
         isEnabled = false
-        dispatcher?.onBackPressed()
+        dispatcher.onBackPressed()
     }
 }
