@@ -89,10 +89,20 @@ class ImageViewerAdapter(
         val mimeType = AndroidFileTypeDetector.getMimeType(this, attributes).asMimeType()
         val bitmapOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         newInputStream().use { BitmapFactory.decodeStream(it, null, bitmapOptions) }
-        return ImageInfo(
+        val imageInfo = ImageInfo(
             attributes, bitmapOptions.outWidth, bitmapOptions.outHeight,
             bitmapOptions.outMimeType?.asMimeTypeOrNull() ?: mimeType
         )
+        // Coil applies EXIF for the normal view. Only the large view needs it read here.
+        if (imageInfo.shouldUseLargeImageView) {
+            imageInfo.largeImageOrientation = try {
+                newInputStream().use { LargeImageOrientation.read(it, bitmapOptions.outMimeType) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                LargeImageOrientation.NORMAL
+            }
+        }
+        return imageInfo
     }
 
     private fun loadImageWithInfo(
@@ -115,7 +125,9 @@ class ImageViewerAdapter(
         } else {
             binding.largeImage.apply {
                 setDoubleTapZoomDuration(300)
-                orientation = SubsamplingScaleImageView.ORIENTATION_USE_EXIF
+                // ORIENTATION_USE_EXIF only works for file URIs, and the view cannot mirror.
+                orientation = imageInfo.largeImageOrientation.rotation
+                scaleX = if (imageInfo.largeImageOrientation.isMirrored) -1f else 1f
                 // Otherwise OnImageEventListener.onReady() is never called.
                 isVisible = true
                 alpha = 0f
@@ -190,5 +202,7 @@ class ImageViewerAdapter(
         val width: Int,
         val height: Int,
         val mimeType: MimeType
-    )
+    ) {
+        var largeImageOrientation = LargeImageOrientation.NORMAL
+    }
 }
