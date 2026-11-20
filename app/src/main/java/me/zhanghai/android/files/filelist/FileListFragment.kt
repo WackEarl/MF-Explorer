@@ -304,7 +304,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             addOnBackPressedCallback(DrawerLayoutOnBackPressedCallback(it))
         }
         // Added last so that it still comes first, like the toolbar's own callback it replaces.
-        searchViewOnBackPressedCallback = CollapseActionViewOnBackPressedCallback(binding.toolbar)
+        searchViewOnBackPressedCallback = CollapseActionViewOnBackPressedCallback(
+            binding.toolbar,
+            requireActivity().onBackPressedDispatcher,
+            hasActiveQuery = { hasActiveSearchQuery() },
+            clearQuery = { clearSearchQuery() }
+        )
         addOnBackPressedCallback(searchViewOnBackPressedCallback)
 
         if (!viewModel.hasTrail) {
@@ -463,7 +468,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
                 if (!applyingTab) {
                     viewModel.isSearchViewExpanded = false
-                    viewModel.stopSearching()
+                    updateSearchBackCallback()
                     updateAdapterFileList()
                 }
                 return true
@@ -506,6 +511,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 if (viewModel.searchState.isSearching && query != viewModel.searchState.query) {
                     viewModel.stopSearching()
                 }
+                updateSearchBackCallback()
                 updateAdapterFileList()
                 return false
             }
@@ -532,6 +538,37 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
     }
 
+    private fun hasActiveSearchQuery(): Boolean =
+        viewModel.searchViewQuery.isNotEmpty() || viewModel.searchState.isSearching
+
+    private fun updateSearchBackCallback() {
+        if (!this::searchViewOnBackPressedCallback.isInitialized) {
+            return
+        }
+        searchViewOnBackPressedCallback.isEnabled =
+            viewModel.isSearchViewExpanded || hasActiveSearchQuery()
+    }
+
+    private fun clearSearchQuery() {
+        viewModel.searchViewQuery = ""
+        viewModel.stopSearching()
+        if (this::menuBinding.isInitialized && menuBinding.searchItem.isActionViewExpanded) {
+            val searchView = menuBinding.searchItem.actionView as FixQueryChangeSearchView
+            searchView.setQuery("", false)
+        }
+        updateSearchBackCallback()
+        updateAdapterFileList()
+    }
+
+    private fun closeSearch() {
+        clearSearchQuery()
+        collapseSearchView()
+        if (viewModel.isSearchViewExpanded) {
+            viewModel.isSearchViewExpanded = false
+        }
+        updateSearchBackCallback()
+    }
+
     private fun syncSearchView() {
         if (!this::menuBinding.isInitialized) {
             return
@@ -551,6 +588,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         } finally {
             applyingTab = false
         }
+        updateSearchBackCallback()
     }
 
     private fun onTabsChanged(tabs: FileTabs) {
@@ -784,7 +822,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun onSearchViewExpandedChanged(expanded: Boolean) {
-        searchViewOnBackPressedCallback.isEnabled = expanded
+        updateSearchBackCallback()
         updateViewSortMenuItems()
     }
 
@@ -916,7 +954,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun navigateUp() {
-        collapseSearchView()
+        closeSearch()
         viewModel.navigateUp()
     }
 
@@ -959,11 +997,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         if (!Settings.FILE_LIST_SHOW_HIDDEN_FILES.valueCompat) {
             result = result.filterNot { it.isHidden }
         }
-        if (viewModel.isSearchViewExpanded && !viewModel.searchState.isSearching) {
-            val query = viewModel.searchViewQuery
-            if (query.isNotEmpty()) {
-                result = result.filter { it.path.name.contains(query, ignoreCase = true) }
-            }
+        val query = viewModel.searchViewQuery
+        if (SearchNameFilter.shouldApply(query, viewModel.searchState.isSearching)) {
+            result = result.filter { SearchNameFilter.matches(it.path.name, query) }
         }
         return result
     }
@@ -994,7 +1030,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     override fun navigateTo(path: Path) {
-        collapseSearchView()
+        closeSearch()
         val state = layoutManager.onSaveInstanceState()
         viewModel.navigateTo(state!!, path)
     }
@@ -1686,7 +1722,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         get() = viewModel.currentPath
 
     override fun navigateToRoot(path: Path) {
-        collapseSearchView()
+        closeSearch()
         viewModel.resetTo(path)
     }
 
