@@ -8,6 +8,7 @@ package me.zhanghai.android.files.ui
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
@@ -61,13 +62,16 @@ class CollapseActionViewOnBackPressedCallbackTest {
     fun replacesToolbarBackInvokedCallback() {
         // setSupportActionBar() lets the toolbar collapse action views ahead of the keyboard.
         assertTrue(toolbar.isBackInvokedCallbackEnabled)
-        CollapseActionViewOnBackPressedCallback(toolbar)
+        CollapseActionViewOnBackPressedCallback(toolbar, activity.onBackPressedDispatcher)
         assertFalse(toolbar.isBackInvokedCallbackEnabled)
     }
 
     @Test
     fun keepsQueryWhenSearchViewLosesFocus() {
-        val callback = CollapseActionViewOnBackPressedCallback(toolbar)
+        val callback = CollapseActionViewOnBackPressedCallback(
+            toolbar,
+            activity.onBackPressedDispatcher
+        )
         activity.onBackPressedDispatcher.addCallback(callback)
         searchItem.expandActionView()
         callback.isEnabled = true
@@ -81,8 +85,15 @@ class CollapseActionViewOnBackPressedCallbackTest {
     }
 
     @Test
-    fun collapsesSearchViewOnBack() {
-        val callback = CollapseActionViewOnBackPressedCallback(toolbar)
+    fun collapsesSearchViewOnBackButKeepsCallbackWhenQueryIsActive() {
+        var active = true
+        var cleared = false
+        val callback = CollapseActionViewOnBackPressedCallback(
+            toolbar,
+            activity.onBackPressedDispatcher,
+            hasActiveQuery = { active },
+            clearQuery = { cleared = true; active = false }
+        )
         activity.onBackPressedDispatcher.addCallback(callback)
         searchItem.expandActionView()
         callback.isEnabled = true
@@ -91,5 +102,52 @@ class CollapseActionViewOnBackPressedCallbackTest {
         activity.onBackPressedDispatcher.onBackPressed()
 
         assertFalse(searchItem.isActionViewExpanded)
+        assertTrue(callback.isEnabled)
+        assertFalse(cleared)
+    }
+
+    @Test
+    fun clearsQueryOnBackAfterSearchViewIsCollapsed() {
+        var active = true
+        var cleared = false
+        val callback = CollapseActionViewOnBackPressedCallback(
+            toolbar,
+            activity.onBackPressedDispatcher,
+            hasActiveQuery = { active },
+            clearQuery = { cleared = true; active = false }
+        )
+        activity.onBackPressedDispatcher.addCallback(callback)
+        searchItem.expandActionView()
+        callback.isEnabled = true
+        searchView.setQuery("report", false)
+
+        activity.onBackPressedDispatcher.onBackPressed()
+        activity.onBackPressedDispatcher.onBackPressed()
+
+        assertTrue(cleared)
+        assertFalse(callback.isEnabled)
+    }
+
+    @Test
+    fun redispatchesBackWhenEnabledWithoutExpandedActionView() {
+        var lowerHandled = false
+        val lower = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                lowerHandled = true
+            }
+        }
+        activity.onBackPressedDispatcher.addCallback(lower)
+        val callback = CollapseActionViewOnBackPressedCallback(
+            toolbar,
+            activity.onBackPressedDispatcher
+        )
+        activity.onBackPressedDispatcher.addCallback(callback)
+        callback.isEnabled = true
+        assertFalse(toolbar.hasExpandedActionView())
+
+        activity.onBackPressedDispatcher.onBackPressed()
+
+        assertTrue(lowerHandled)
+        assertFalse(callback.isEnabled)
     }
 }

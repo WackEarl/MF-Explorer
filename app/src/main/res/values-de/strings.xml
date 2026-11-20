@@ -281,6 +281,7 @@
         <item quantity="other">%1$,d Dateien</item>
     </plurals>
     <string name="file_list_subtitle_separator">,\u0020</string>
+    <string name="file_list_search_query_subtitle">Suche: %1$s</string>
     <string name="file_list_path_error_empty">Pfad darf nicht leer sein</string>
     <string name="file_list_path_error_invalid">Ungültiger Pfad</string>
     <string name="file_list_action_view_sort">Anzeigen und Sortieren</string>
