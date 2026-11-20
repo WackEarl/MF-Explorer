@@ -88,6 +88,7 @@ import me.zhanghai.android.files.provider.linux.isLinuxPath
 import me.zhanghai.android.files.settings.Settings
 import me.zhanghai.android.files.terminal.Terminal
 import me.zhanghai.android.files.ui.AppBarLayoutExpandHackListener
+import me.zhanghai.android.files.ui.CollapseActionViewOnBackPressedCallback
 import me.zhanghai.android.files.ui.CoordinatorAppBarLayout
 import me.zhanghai.android.files.ui.DrawerLayoutOnBackPressedCallback
 import me.zhanghai.android.files.ui.FixQueryChangeSearchView
@@ -188,6 +189,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     private var updatingTabs = false
 
     private var fileJobsVisible = false
+
+    private lateinit var searchViewOnBackPressedCallback: CollapseActionViewOnBackPressedCallback
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -300,6 +303,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         binding.drawerLayout?.let {
             addOnBackPressedCallback(DrawerLayoutOnBackPressedCallback(it))
         }
+        // Added last so that it still comes first, like the toolbar's own callback it replaces.
+        searchViewOnBackPressedCallback = CollapseActionViewOnBackPressedCallback(binding.toolbar)
+        addOnBackPressedCallback(searchViewOnBackPressedCallback)
 
         if (!viewModel.hasTrail) {
             var path = argsPath
@@ -778,6 +784,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
     }
 
     private fun onSearchViewExpandedChanged(expanded: Boolean) {
+        searchViewOnBackPressedCallback.isEnabled = expanded
         updateViewSortMenuItems()
     }
 
