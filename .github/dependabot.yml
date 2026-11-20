@@ -1,0 +1,45 @@
+# Dependabot version updates for Gradle and GitHub Actions.
+# Weekly on Monday, Europe/Berlin. Majors stay in individual PRs.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: "deps"
+    groups:
+      androidx:
+        applies-to: "version-updates"
+        patterns:
+          - "androidx*"
+          - "com.google.android.material*"
+        update-types:
+          - "minor"
+          - "patch"
+      gradle-minor-patch:
+        applies-to: "version-updates"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: "deps"
+    groups:
+      github-actions-minor-patch:
+        applies-to: "version-updates"
+        update-types:
+          - "minor"
+          - "patch"
