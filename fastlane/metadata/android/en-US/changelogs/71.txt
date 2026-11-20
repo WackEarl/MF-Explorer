@@ -1,0 +1,3 @@
+- NFS access-denied errors (e.g. MKDIR or RMDIR failing with NFS3ERR_ACCES) now name the UID and GID the server refused (#5).
+- The image viewer respects EXIF orientation, including mirroring, for large images (#6).
+- Hiding the keyboard with back no longer clears the search query; the next back closes the search (#7).
