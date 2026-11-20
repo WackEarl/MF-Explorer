@@ -1,0 +1,3 @@
+- Search results stay visible after the search field is closed with back; the next back, or clearing the query, restores the unfiltered list (#12).
+- While the search field is collapsed, the toolbar subtitle shows the active search term (#12, #13).
+- A back press is no longer lost right after rotating the screen (#11).
