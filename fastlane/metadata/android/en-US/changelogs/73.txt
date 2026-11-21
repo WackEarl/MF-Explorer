@@ -1,0 +1,3 @@
+- Fix a high-severity Guava denial-of-service issue by bumping to 33.8.0-android (CVE-2026-102554, #15, #16).
+- Update Apache MINA to 2.2.10, addressing known security issues in the previous 2.1.3 pin (including CVE-2024-52046, #17, #18).
+- Raise the minimum Android version to 8.0 (API 26). Android 6 and 7 are no longer supported (#17, #18).
