@@ -31,7 +31,7 @@ android {
     ndkVersion '30.0.16248370'
     defaultConfig {
         applicationId 'me.zhanghai.android.files'
-        minSdk 23
+        minSdk 26
         // Not supporting the ACCESS_LOCAL_NETWORK runtime permission yet.
         //noinspection OldTargetApi
         targetSdk 36
@@ -218,14 +218,9 @@ dependencies {
     implementation 'me.zhanghai.android.retrofile:library:1.2.0'
     implementation 'me.zhanghai.android.systemuihelper:library:1.0.0'
     implementation 'org.apache.ftpserver:ftpserver-core:1.2.1'
-    // This is a dependency of org.apache.ftpserver:ftpserver-core but org.apache.mina:mina-core
-    // 2.1.4+ became incompatible before API 24 due to dependency on StandardSocketOptions
-    // (DIRMINA-1123) and NetworkChannel.supportedOptions() (DIRMINA-1130).
-    implementation ('org.apache.mina:mina-core') {
-        version {
-            strictly '2.1.3'
-        }
-    }
+    // ftpserver-core 1.2.1 declares mina-core 2.2.4; use the latest patched 2.2.x.
+    // Requires API 24+ (StandardSocketOptions / NetworkChannel.supportedOptions()).
+    implementation 'org.apache.mina:mina-core:2.2.10'
     // Also a dependency of jCIFS-NG.
     implementation 'org.slf4j:slf4j-android:1.7.36'
 
