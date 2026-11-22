@@ -16,6 +16,7 @@ import me.zhanghai.android.files.filejob.fileJobNotificationTemplate
 import me.zhanghai.android.files.ftpserver.ftpServerServiceNotificationTemplate
 import me.zhanghai.android.files.hiddenapi.HiddenApi
 import me.zhanghai.android.files.provider.FileSystemProviders
+import me.zhanghai.android.files.provider.nfs.client.NfsNetworkMonitor
 import me.zhanghai.android.files.settings.Settings
 import me.zhanghai.android.files.storage.FtpServerAuthenticator
 import me.zhanghai.android.files.storage.SftpServerAuthenticator
@@ -75,6 +76,7 @@ private fun initializeFileSystemProviders() {
     SftpClient.authenticator = SftpServerAuthenticator
     SmbClient.authenticator = SmbServerAuthenticator
     WebDavClient.authenticator = WebDavServerAuthenticator
+    NfsNetworkMonitor.register(application)
 }
 
 private fun initializeLiveDataObjects() {

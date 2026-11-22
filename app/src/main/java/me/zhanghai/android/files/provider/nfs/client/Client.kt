@@ -6,6 +6,7 @@
 package me.zhanghai.android.files.provider.nfs.client
 
 import android.os.Looper
+import android.util.Log
 import android.system.OsConstants
 import java8.nio.channels.SeekableByteChannel
 import me.zhanghai.android.files.provider.common.ByteString
@@ -21,6 +22,8 @@ import java.util.concurrent.locks.ReentrantLock
  * and a write channel open together.
  */
 internal object Client {
+    private const val TAG = "NfsClient"
+
     private const val TIMEOUT_MILLIS = 30_000
 
     private val mounts = mutableMapOf<Authority, Mount>()
@@ -33,6 +36,13 @@ internal object Client {
         var files: Int = 0,
         var alive: Boolean = true
     ) {
+        /**
+         * The network this context was mounted on is gone, or one of its calls failed in
+         * transport while a file was open. Replaced as soon as no file is open on it.
+         */
+        @Volatile
+        var stale: Boolean = false
+
         /** Lets a non-pipeline read give way to a list, open or stat waiting for [lock]. */
         val gate = WaiterGate(lock)
     }
@@ -62,6 +72,29 @@ internal object Client {
         }
         if (mount != null) {
             reap(mount)
+        }
+    }
+
+    /**
+     * The default network was lost or replaced. Idle contexts are dropped now, so the next call
+     * mounts on the current network. A context with open files or a call in progress is marked
+     * stale and replaced by the next [use] once its files are closed.
+     */
+    fun onNetworkChanged() {
+        val all = synchronized(mounts) { mounts.values.toList() }
+        for (mount in all) {
+            mount.stale = true
+            if (!mount.lock.tryLock()) {
+                continue
+            }
+            try {
+                if (mount.alive && mount.files == 0) {
+                    Log.i(TAG, "Dropping NFS context for ${mount.authority} after a network change")
+                    retireLocked(mount)
+                }
+            } finally {
+                mount.lock.unlock()
+            }
         }
     }
 
@@ -133,6 +166,11 @@ internal object Client {
                 if (!mount.alive) {
                     continue
                 }
+                if (mount.stale && mount.files == 0) {
+                    Log.i(TAG, "Replacing stale NFS context for $authority")
+                    retireLocked(mount)
+                    continue
+                }
                 // An open file holds an nfsfh from this context. Replaying the
                 // call on a fresh mount would use that pointer against a
                 // different context. libnfs reconnects the socket in place for
@@ -143,7 +181,18 @@ internal object Client {
                     return block(mount)
                 } catch (e: ClientException) {
                     firstFailure?.let { e.addSuppressed(it) }
-                    if (transportRetry && canRemount && e.isTransportFailure()) {
+                    val transport = e.isTransportFailure()
+                    if (transport) {
+                        Log.w(
+                            TAG, "NFS transport failure on $authority (open files: " +
+                                "${mount.files}): errno ${e.errno}, ${e.message}"
+                        )
+                        if (!canRemount) {
+                            // Do not keep a dead context once the open files are closed.
+                            mount.stale = true
+                        }
+                    }
+                    if (transportRetry && canRemount && transport) {
                         transportRetry = false
                         firstFailure = e
                         retireLocked(mount)
