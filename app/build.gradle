@@ -230,3 +230,30 @@ dependencies {
     implementation 'com.google.firebase:firebase-crashlytics-ndk'
 //#endif
 }
+
+// Host test for pipe_depth_from_rcvbuf() in nfs-pipe-depth.h. Uses the
+// system cc, not the NDK, because the header is portable C.
+tasks.register('testPipeDepth', Exec) {
+    def source = file('src/test/c/pipe_depth_test.c')
+    def includeDir = file('src/main/jni')
+    def exeFile = layout.buildDirectory.file('tmp/pipe_depth_test').get().asFile
+    inputs.files(source, file('src/main/jni/nfs-pipe-depth.h'))
+    // Always run the assertions, not only when the sources change.
+    outputs.upToDateWhen { false }
+    doFirst {
+        exeFile.parentFile.mkdirs()
+    }
+    commandLine 'sh', '-eu', '-c',
+            'cc -Wall -Werror -I "$1" -o "$2" "$3" && "$2"',
+            'pipe_depth_test',
+            includeDir.absolutePath,
+            exeFile.absolutePath,
+            source.absolutePath
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'testDebugUnitTest' || task.name == 'check') {
+        task.dependsOn 'testPipeDepth'
+    }
+}
+

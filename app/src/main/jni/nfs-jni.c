@@ -13,6 +13,8 @@
 #include <nfsc/libnfs-raw.h>
 #include <fcntl.h>
 
+#include "nfs-pipe-depth.h"
+
 /* libnfs-raw-nfs.h defines NFS_V3. The public header only names it. */
 #define NFS_VERSION_3 3
 
@@ -234,7 +236,6 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_closeFile(JNIEnv *e
  * Callbacks only record status. They take no lock and issue no RPC.
  * The mount lock already keeps nfs_service on one thread.
  */
-#define PIPE_SLOTS 16
 #define PIPE_GATE (8 * 1024 * 1024)
 #define PIPE_MIN (256 * 1024)
 
@@ -449,31 +450,22 @@ static void pipe_flush(struct nfs_context *nfs) {
 }
 
 /*
- * Linux returns SO_RCVBUF as twice the bytes the socket will hold.
- * Depth follows that, so a clamped set does not issue more than fits.
+ * Linux returns SO_RCVBUF as twice the bytes the socket will hold. A buffer
+ * that holds several reads raises the depth; a clamped one no longer keeps
+ * it at 1. See pipe_depth_from_rcvbuf().
  */
 static int pipe_depth_for(struct nfs_context *nfs, size_t iosize) {
     int fd = nfs_get_fd(nfs);
     int got = 0;
     socklen_t len = sizeof(got);
-    int usable;
-    int depth;
 
-    if (iosize == 0) {
-        iosize = 1024 * 1024;
-    }
-    if (fd < 0 || getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len) != 0 || got <= 0) {
+    if (fd < 0) {
         return 1;
     }
-    usable = got / 2;
-    depth = usable / (int) iosize;
-    if (depth < 1) {
-        depth = 1;
+    if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len) != 0) {
+        got = 0;
     }
-    if (depth > PIPE_SLOTS) {
-        depth = PIPE_SLOTS;
-    }
-    return depth;
+    return pipe_depth_from_rcvbuf(got, iosize);
 }
 
 static struct pipe_slot *pipe_cover(struct pipe *pipe, struct nfsfh *fh, uint64_t offset,
