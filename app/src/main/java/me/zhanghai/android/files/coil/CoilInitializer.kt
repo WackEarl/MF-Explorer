@@ -20,7 +20,7 @@ fun initializeCoil() {
     Coil.setImageLoader(
         ImageLoader.Builder(application)
             .components {
-                add(RemoteImageDiskCacheInterceptor())
+                add(RemoteImageDiskCacheInterceptor { Coil.imageLoader(application).diskCache })
                 add(AppIconApplicationInfoKeyer())
                 add(AppIconApplicationInfoFetcherFactory(application))
                 add(AppIconPackageNameKeyer())
