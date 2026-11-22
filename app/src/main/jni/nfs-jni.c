@@ -135,6 +135,17 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_create(JNIEnv *env,
     return (jlong) (intptr_t) nfs;
 }
 
+JNIEXPORT void JNICALL
+Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_setTimeout(JNIEnv *env, jclass clazz,
+                                                                       jlong context,
+                                                                       jint timeout_ms) {
+    (void) env;
+    (void) clazz;
+    if (context != 0 && timeout_ms > 0) {
+        nfs_set_timeout(context_from(context), timeout_ms);
+    }
+}
+
 static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh);
 static void pipe_invalidate(struct nfs_context *nfs, struct nfsfh *fh);
 static int writes_drain(struct nfs_context *nfs, struct nfsfh *fh);

@@ -19,6 +19,9 @@ internal object NfsNative {
 
     external fun create(uid: Int, gid: Int, timeoutMs: Int): Long
 
+    /** RPC timeout for calls queued from now on. */
+    external fun setTimeout(context: Long, timeoutMs: Int)
+
     external fun destroy(context: Long)
 
     external fun mount(

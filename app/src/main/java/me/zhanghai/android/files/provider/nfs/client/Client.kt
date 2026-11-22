@@ -24,8 +24,6 @@ import java.util.concurrent.locks.ReentrantLock
 internal object Client {
     private const val TAG = "NfsClient"
 
-    private const val TIMEOUT_MILLIS = 30_000
-
     private val mounts = mutableMapOf<Authority, Mount>()
     private val pins = mutableMapOf<Authority, Int>()
 
@@ -98,6 +96,8 @@ internal object Client {
         }
     }
 
+    private fun millisSince(startNanos: Long): Long = (System.nanoTime() - startNanos) / 1_000_000
+
     private fun checkThread() {
         check(Looper.myLooper() != Looper.getMainLooper()) { "NFS I/O on the main thread" }
     }
@@ -106,7 +106,9 @@ internal object Client {
         synchronized(mounts) {
             mounts[authority]?.let { return it }
         }
-        val context = NfsNative.create(authority.uid, authority.gid, TIMEOUT_MILLIS)
+        val context = NfsNative.create(
+            authority.uid, authority.gid, NfsTimeouts.MOUNT_TIMEOUT_MILLIS
+        )
         if (context == 0L) {
             throw error(0L, authority.host)
         }
@@ -123,6 +125,7 @@ internal object Client {
             NfsNative.destroy(context)
             throw exception
         }
+        NfsNative.setTimeout(context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
         return synchronized(mounts) {
             mounts[authority]?.let { existing ->
                 NfsNative.destroy(context)
@@ -148,20 +151,35 @@ internal object Client {
         block: (Mount) -> R
     ): R {
         checkThread()
+        val start = System.nanoTime()
         var transportRetry = true
         var firstFailure: ClientException? = null
+        // Remount plus replayed call, or 0 when this is not a replay.
+        var replayBudget = 0
         while (true) {
+            if (NfsTimeouts.failWithoutNetwork(NfsNetworkMonitor.isNetworkAvailable, authority.host)) {
+                val e = exception(OsConstants.ENETUNREACH, "Network is unreachable")
+                firstFailure?.let { e.addSuppressed(it) }
+                throw e
+            }
+            val mountStart = System.nanoTime()
             val mount = try {
                 mount(authority)
             } catch (e: ClientException) {
                 firstFailure?.let { e.addSuppressed(it) }
                 throw e
             }
+            val replayTimeout = if (replayBudget > 0) {
+                NfsTimeouts.replayTimeoutMillis(replayBudget, millisSince(mountStart))
+            } else {
+                0
+            }
             if (waiter) {
                 mount.gate.lockAsWaiter()
             } else {
                 mount.lock.lock()
             }
+            var timeoutChanged = false
             try {
                 if (!mount.alive) {
                     continue
@@ -178,6 +196,10 @@ internal object Client {
                 val canRemount = mount.files == 0
                 try {
                     mount.ensureSession()
+                    if (replayTimeout in 1 until NfsTimeouts.RPC_TIMEOUT_MILLIS) {
+                        NfsNative.setTimeout(mount.context, replayTimeout)
+                        timeoutChanged = true
+                    }
                     return block(mount)
                 } catch (e: ClientException) {
                     firstFailure?.let { e.addSuppressed(it) }
@@ -197,12 +219,20 @@ internal object Client {
                         firstFailure = e
                         retireLocked(mount)
                         if (replay) {
-                            continue
+                            // A call that already ran into the RPC timeout would wait for a
+                            // remount and a second timeout. Only replay within the budget.
+                            replayBudget = NfsTimeouts.replayBudgetMillis(millisSince(start))
+                            if (replayBudget > 0) {
+                                continue
+                            }
                         }
                     }
                     throw e.withCredentials(authority)
                 }
             } finally {
+                if (timeoutChanged && mount.alive && mount.context != 0L) {
+                    NfsNative.setTimeout(mount.context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
+                }
                 mount.lock.unlock()
                 reap(mount)
             }
