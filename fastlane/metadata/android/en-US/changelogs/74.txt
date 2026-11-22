@@ -1,0 +1,5 @@
+- Faster copying from NFS: read-ahead now starts on Android's default socket limits (#24, #28).
+- Faster copying of large files to NFS: writes are pipelined and follow the server's max write size (#32, #33).
+- With "Keep thumbnails of remote files" on, NFS thumbnails stay on disk across restarts (#25, #29).
+- NFS exports with &, #, + or % in the path survive tabs, bookmarks and restarts (#26, #30).
+- Failed NFS connections show a readable message instead of raw RPC errors (#27, #31).
