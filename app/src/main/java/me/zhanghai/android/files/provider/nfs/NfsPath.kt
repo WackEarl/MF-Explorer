@@ -20,6 +20,7 @@ import me.zhanghai.android.files.provider.common.ByteStringListPath
 import me.zhanghai.android.files.provider.common.LocalWatchService
 import me.zhanghai.android.files.provider.common.MountAbsoluteLink
 import me.zhanghai.android.files.provider.common.UriAuthority
+import me.zhanghai.android.files.provider.common.create
 import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.nfs.client.Authority
 import me.zhanghai.android.files.provider.nfs.client.Client
@@ -27,6 +28,7 @@ import me.zhanghai.android.files.provider.nfs.client.NfsStat
 import me.zhanghai.android.files.util.readParcelable
 import java.io.File
 import java.io.IOException
+import java.net.URI
 
 internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path, MountAbsoluteLink {
     private val fileSystem: NfsFileSystem
@@ -68,9 +70,18 @@ internal class NfsPath : ByteStringListPath<NfsPath>, Client.Path, MountAbsolute
                 if (authority.gid != Authority.DEFAULT_GID) {
                     appendQueryParameter(QUERY_PARAMETER_GID, authority.gid.toString())
                 }
-            }.build().query
+            }.build().encodedQuery
+            // Keep form-urlencoded escapes (%26, %23, %2B, %25). getQuery() would decode
+            // them, and a second URI encode would leave '&' and '+' raw.
             return query?.toByteString()
         }
+
+    // uriQuery is already form-urlencoded, so do not run it through encodeQuery again.
+    override fun toUri(): URI {
+        val withoutQuery = URI::class.create(uriScheme, uriAuthority, uriPath, null)
+        val query = uriQuery ?: return withoutQuery
+        return URI.create(withoutQuery.toString() + "?" + query)
+    }
 
     override val defaultDirectory: NfsPath
         get() = fileSystem.defaultDirectory

@@ -34,7 +34,6 @@ import me.zhanghai.android.files.provider.common.Searchable
 import me.zhanghai.android.files.provider.common.WalkFileTreeSearchable
 import me.zhanghai.android.files.provider.common.WatchServicePathObservable
 import me.zhanghai.android.files.provider.common.decodedPathByteString
-import me.zhanghai.android.files.provider.common.decodedQueryByteString
 import me.zhanghai.android.files.provider.common.toAccessModes
 import me.zhanghai.android.files.provider.common.toByteString
 import me.zhanghai.android.files.provider.common.toCopyOptions
@@ -110,7 +109,7 @@ object NfsFileSystemProvider : FileSystemProvider(), PathObservableProvider, Sea
                 host ?: throw IllegalArgumentException("URI must have a host")
             )
             val nfsPort = if (port != -1) port else Authority.PORTMAPPER
-            val query = decodedQueryByteString?.toString()
+            val query = rawQuery
                 ?: throw IllegalArgumentException("URI must have an export")
             val queryUri = Uri.parse("nfs://local/?$query")
             val export = queryUri.getQueryParameter(NfsPath.QUERY_PARAMETER_EXPORT)
