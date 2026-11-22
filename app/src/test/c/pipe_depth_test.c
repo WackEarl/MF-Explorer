@@ -1,5 +1,8 @@
 /*
- * Host test for pipe_depth_from_rcvbuf(). Not part of the Gradle build:
+ * Host test for pipe_depth_from_rcvbuf(). Run by the Gradle task
+ * testPipeDepth, which testDebugUnitTest and check depend on:
+ *   ./gradlew :app:testPipeDepth
+ * or directly:
  *   cc -Wall -Werror -I app/src/main/jni -o /tmp/pipe_depth_test \
  *       app/src/test/c/pipe_depth_test.c && /tmp/pipe_depth_test
  */
