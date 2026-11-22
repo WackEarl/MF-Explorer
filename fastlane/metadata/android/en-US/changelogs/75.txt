@@ -1,0 +1,5 @@
+- NFS write errors after a dropped connection are no longer lost, and the file is always closed (#34, #35).
+- The plus button no longer covers the last folder tab (#36, #38).
+- NFS reconnects after airplane mode or a network change, fails fast without network and stays under 35 s (#37, #39).
+- A partial NFS copy left by a lost connection is removed once the server is back (#37, #39).
+- A wrong NFS export is shown at the export field, and NFS errors no longer show Java class names (#37, #39).
