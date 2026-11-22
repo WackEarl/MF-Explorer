@@ -177,11 +177,11 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_mount(JNIEnv *env, 
     }
     rc = nfs_mount(context_from(context), host_chars, export_chars);
     /* FSINFO clamps rsize, wsize and readdir to the advertised maxima.
-     * Ask for 1 MiB afterwards anyway: a short reply is legal, and the
-     * kernel mount that fills the link uses that size. */
+     * Ask for 1 MiB reads and listings afterwards anyway: a short reply is
+     * legal. wsize stays at min(1 MiB, wtmax): a WRITE is one RPC record,
+     * and a server drops the connection on a record above its maximum. */
     if (rc == 0) {
         nfs_set_readmax(context_from(context), 1024 * 1024);
-        nfs_set_writemax(context_from(context), 1024 * 1024);
         nfs_set_readdir_max_buffer_size(context_from(context), 1024 * 1024, 1024 * 1024);
     }
     (*env)->ReleaseStringUTFChars(env, host, host_chars);
