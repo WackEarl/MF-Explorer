@@ -459,33 +459,45 @@ internal object Client {
             rc
         }
 
-    internal fun pwrite(path: Path, file: Long, buffer: ByteArray, offset: Long): Int =
+    /**
+     * Writes the first [length] bytes of [buffer]. A bulk write may only be queued: its error
+     * comes back from a later write, fsync or close of this file.
+     */
+    internal fun pwrite(path: Path, file: Long, buffer: ByteArray, length: Int, offset: Long): Int =
         useExisting(path.authority) { mount ->
-            writeAt(mount, file, buffer, offset)
+            writeAt(mount, file, buffer, length, offset)
         }
 
     /** Size and write share one lock so a second append cannot land in between. */
-    internal fun append(path: Path, file: Long, buffer: ByteArray): Int =
+    internal fun append(path: Path, file: Long, buffer: ByteArray, length: Int): Int =
         useExisting(path.authority) { mount ->
             val values = NfsNative.fstat(mount.context, file) ?: throw error(mount.context, "")
             if (values[0] < 0) {
                 throw error(mount.context, "")
             }
-            writeAt(mount, file, buffer, NfsStat(values).size)
+            writeAt(mount, file, buffer, length, NfsStat(values).size)
         }
 
     /**
-     * Writes [buffer] at [offset], retrying a short count under the same mount lock.
-     * A later failure returns how many bytes were already committed so the caller can
-     * keep only the tail. Append must not fstat again: the prefix is already in the file.
+     * Writes the first [length] bytes of [buffer] at [offset], retrying a short count under
+     * the same mount lock. A later failure returns how many bytes were already committed so
+     * the caller can keep only the tail. Append must not fstat again: the prefix is already
+     * in the file.
      */
-    private fun writeAt(mount: Mount, file: Long, buffer: ByteArray, offset: Long): Int {
+    private fun writeAt(
+        mount: Mount,
+        file: Long,
+        buffer: ByteArray,
+        length: Int,
+        offset: Long
+    ): Int {
         var off = offset
         var pending = buffer
+        var pendingLength = length
         var done = 0
-        while (pending.isNotEmpty()) {
+        while (pendingLength > 0) {
             val rc = try {
-                val n = NfsNative.pwrite(mount.context, file, pending, pending.size, off)
+                val n = NfsNative.pwrite(mount.context, file, pending, pendingLength, off)
                 check(mount.context, n, "")
                 n
             } catch (e: ClientException) {
@@ -501,11 +513,12 @@ internal object Client {
                 throw exception(OsConstants.EIO, "Short NFS write")
             }
             done += rc
-            if (rc >= pending.size) {
+            if (rc >= pendingLength) {
                 break
             }
             off += rc
-            pending = pending.copyOfRange(rc, pending.size)
+            pending = pending.copyOfRange(rc, pendingLength)
+            pendingLength = pending.size
         }
         return done
     }
