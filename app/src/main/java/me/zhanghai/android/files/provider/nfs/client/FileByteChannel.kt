@@ -192,14 +192,17 @@ internal class FileByteChannel(
     @Throws(IOException::class)
     override fun onClose() {
         if (!nativeClosed) {
-            flushWrite()
-            try {
-                Client.closeFile(path, file, deleteOnClose)
-            } catch (e: ClientException) {
-                nativeClosed = true
-                throw e.toFileSystemException(path.toString())
-            }
-            nativeClosed = true
+            closeAfterFlush(
+                flushWrite = { flushWrite() },
+                closeFile = {
+                    try {
+                        Client.closeFile(path, file, deleteOnClose)
+                    } catch (e: ClientException) {
+                        throw e.toFileSystemException(path.toString())
+                    }
+                },
+                onHandleClosed = { nativeClosed = true }
+            )
         }
         if (written) {
             LocalWatchService.onEntryModified(path)
@@ -213,4 +216,35 @@ internal class FileByteChannel(
         private const val WRITE_BUFFER_SIZE = 1024 * 1024
         private const val THUMBNAIL_READ_BLOCK_SIZE = 256 * 1024
     }
+}
+
+/**
+ * Flushes pending writes, then always closes the native handle. Errors from
+ * both are combined ([flushWrite] is primary, [closeFile] is suppressed).
+ * [onHandleClosed] runs as soon as the handle is released, including when
+ * close throws: JNI always calls nfs_close.
+ */
+internal fun closeAfterFlush(
+    flushWrite: () -> Unit,
+    closeFile: () -> Unit,
+    onHandleClosed: () -> Unit
+) {
+    var flushError: IOException? = null
+    try {
+        flushWrite()
+    } catch (e: IOException) {
+        flushError = e
+    }
+    try {
+        closeFile()
+        onHandleClosed()
+    } catch (e: IOException) {
+        onHandleClosed()
+        if (flushError != null) {
+            flushError.addSuppressed(e)
+            throw flushError
+        }
+        throw e
+    }
+    flushError?.let { throw it }
 }

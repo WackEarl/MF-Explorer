@@ -9,6 +9,7 @@
  */
 #include <stdio.h>
 
+#define WPIPE_TEST 1
 #include "nfs-write-pipe.h"
 
 #define KIB 1024
@@ -46,6 +47,7 @@ struct nfs_context {
     int issued;
     int sync_writes;
     int fail_issue_at;      /* issue index that queues nothing, or -1 */
+    int fail_issue_from;    /* fail every issue index >= this, or -1 */
     int fail_reply_at;      /* issue index answered with fail_reply_rc, or -1 */
     int fail_reply_rc;
     int short_reply_at;     /* issue index answered with half its bytes, or -1 */
@@ -95,7 +97,8 @@ static int fake_issue(struct nfs_context *nfs, struct nfsfh *fh, const void *buf
     int index = nfs->issued++;
     struct fake_write *w;
 
-    if (index == nfs->fail_issue_at) {
+    if (index == nfs->fail_issue_at ||
+        (nfs->fail_issue_from >= 0 && index >= nfs->fail_issue_from)) {
         snprintf(nfs->error, sizeof(nfs->error), "RPC error: Failed to send WRITE call");
         return -1;
     }
@@ -242,8 +245,10 @@ static unsigned char source[FILE_MAX];
 static void reset(struct wpipe *wp) {
     memset(&ctx, 0, sizeof(ctx));
     ctx.fail_issue_at = -1;
+    ctx.fail_issue_from = -1;
     ctx.fail_reply_at = -1;
     ctx.short_reply_at = -1;
+    wpipe_fail_fault_alloc = 0;
     memset(&file_a, 0, sizeof(file_a));
     memset(&file_b, 0, sizeof(file_b));
     fh_a.file = &file_a;
@@ -287,6 +292,32 @@ static int write_all(struct wpipe *wp, struct nfsfh *fh, size_t size, size_t blo
         at += (size_t) rc;
     }
     return 0;
+}
+
+/*
+ * Same contract as Client.writeAt: retry a short success under the same
+ * "lock", and on error return how many bytes were already queued.
+ */
+static int write_at_like(struct wpipe *wp, struct nfsfh *fh, const char *buf, int length,
+                         uint64_t offset, size_t chunk, int depth) {
+    int done = 0;
+
+    while (done < length) {
+        int rc = wpipe_write(wp, fh, buf + done, length - done, offset + (uint64_t) done,
+                             chunk, depth);
+
+        if (rc < 0) {
+            return done > 0 ? done : rc;
+        }
+        if (rc == 0) {
+            return done > 0 ? done : -EIO;
+        }
+        if (rc > length - done) {
+            rc = length - done;
+        }
+        done += rc;
+    }
+    return done;
 }
 
 static void test_sequential_copy(void) {
@@ -574,6 +605,50 @@ static void test_fsync_waits(void) {
     expect_int("fsync: close ok", wpipe_close(&wp, &fh_a, &stuck), 0);
 }
 
+static void test_issue_fails_mid_split(void) {
+    struct wpipe wp;
+    int stuck = 0;
+    int rc;
+
+    reset(&wp);
+    fill_source(16);
+    ctx.fail_issue_from = 1;
+    rc = wpipe_write(&wp, &fh_a, (const char *) source, 2 * MIB, 0, MIB, 4);
+    expect_int("mid-split: prefix already queued is returned", rc, MIB);
+    expect_int("mid-split: first WRITE still in flight", slots_used(&wp), 1);
+    expect_int("mid-split: drain prefix of first case", wpipe_close(&wp, &fh_a, &stuck), 0);
+
+    reset(&wp);
+    fill_source(17);
+    ctx.fail_issue_from = 1;
+    rc = write_at_like(&wp, &fh_a, (const char *) source, 2 * MIB, 0, MIB, 4);
+    expect_int("mid-split: writeAt keeps the prefix", rc, MIB);
+    rc = write_at_like(&wp, &fh_a, (const char *) source + MIB, MIB, MIB, MIB, 4);
+    expect_int("mid-split: tail then fails", rc, -EIO);
+    expect_int("mid-split: close drains the prefix", wpipe_close(&wp, &fh_a, &stuck), 0);
+    expect_int("mid-split: only the prefix landed", (long long) file_a.size, MIB);
+    expect_true("mid-split: prefix bytes", memcmp(file_a.data, source, MIB) == 0);
+}
+
+static void test_fault_alloc_oom(void) {
+    struct wpipe wp;
+    int stuck = 0;
+
+    reset(&wp);
+    fill_source(18);
+    ctx.fail_reply_at = 0;
+    ctx.fail_reply_rc = -ENOSPC;
+    wpipe_fail_fault_alloc = 1;
+    expect_int("oom fault: queued", wpipe_write(&wp, &fh_a, (const char *) source, MIB, 0,
+                                                MIB, 4), MIB);
+    expect_int("oom fault: fsync reports it", wpipe_flush(&wp, &fh_a), -ENOSPC);
+    expect_int("oom fault: later write reports it", wpipe_write(&wp, &fh_a,
+                                                               (const char *) source + MIB, MIB,
+                                                               MIB, MIB, 4), -ENOSPC);
+    expect_int("oom fault: close reports it", wpipe_close(&wp, &fh_a, &stuck), -ENOSPC);
+    expect_true("oom fault: error text kept", strstr(ctx.error, "NFS3ERR_NOSPC") != NULL);
+}
+
 static void test_write_depth(void) {
     expect_int("write depth: aosp wmem_max", pipe_write_depth(524288, MIB), PIPE_MIN_DEPTH);
     expect_int("write depth: big sndbuf", pipe_write_depth(32 * MIB, MIB), PIPE_SLOTS);
@@ -600,6 +675,8 @@ int main(void) {
     test_two_handles_share_slots();
     test_drain_for_read();
     test_fsync_waits();
+    test_issue_fails_mid_split();
+    test_fault_alloc_oom();
     test_write_depth();
     if (failures != 0) {
         printf("%d failure(s)\n", failures);

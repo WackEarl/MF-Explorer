@@ -31,6 +31,11 @@
 
 #include "nfs-pipe-depth.h"
 
+#ifdef WPIPE_TEST
+/* Host tests set this to force wpipe_fault_add to run its OOM path. */
+static int wpipe_fail_fault_alloc;
+#endif
+
 struct nfs_context;
 struct nfsfh;
 
@@ -86,6 +91,9 @@ struct wpipe {
     struct nfs_context *nfs;
     struct wpipe_slot slot[PIPE_SLOTS];
     struct wpipe_fault *faults;
+    /* Set when calloc in wpipe_fault_add fails, so the error is not lost. */
+    int lost_fault_rc;
+    char lost_fault_error[WPIPE_ERR_LEN];
 };
 
 static inline void wpipe_init(struct wpipe *wp, const struct wpipe_ops *ops,
@@ -137,9 +145,21 @@ static void wpipe_fault_add(struct wpipe *wp, struct nfsfh *fh, int rc, const ch
     if (fh == NULL || wpipe_fault_for(wp, fh) != NULL) {
         return;
     }
+#ifdef WPIPE_TEST
+    if (wpipe_fail_fault_alloc) {
+        fault = NULL;
+    } else {
+        fault = calloc(1, sizeof(*fault));
+    }
+#else
     fault = calloc(1, sizeof(*fault));
+#endif
     if (fault == NULL) {
-        /* Out of memory: the handle still fails, with a generic message. */
+        /* Keep a sticky fallback so fsync and close still report the error. */
+        if (wp->lost_fault_rc == 0) {
+            wp->lost_fault_rc = rc < 0 ? rc : -EIO;
+            wpipe_copy_error(wp->lost_fault_error, error);
+        }
         return;
     }
     fault->fh = fh;
@@ -168,11 +188,15 @@ static void wpipe_fault_remove(struct wpipe *wp, struct nfsfh *fh) {
 static int wpipe_fault_rc(struct wpipe *wp, struct nfsfh *fh) {
     struct wpipe_fault *fault = wpipe_fault_for(wp, fh);
 
-    if (fault == NULL) {
-        return 0;
+    if (fault != NULL) {
+        wp->ops->set_error(wp->nfs, fault->error);
+        return fault->rc;
     }
-    wp->ops->set_error(wp->nfs, fault->error);
-    return fault->rc;
+    if (wp->lost_fault_rc < 0) {
+        wp->ops->set_error(wp->nfs, wp->lost_fault_error);
+        return wp->lost_fault_rc;
+    }
+    return 0;
 }
 
 static void wpipe_slot_free(struct wpipe_slot *slot) {
@@ -461,6 +485,11 @@ static int wpipe_write(struct wpipe *wp, struct nfsfh *fh, const char *buf, int 
         slot->state = 1;
         if (wp->ops->issue(wp->nfs, fh, slot->buf, count, slot->offset, wpipe_cb, slot) != 0) {
             wpipe_slot_free(slot);
+            /* Prefix chunks are already in flight; the caller retries the tail. */
+            if (done > 0) {
+                wpipe_push(wp);
+                return (int) done;
+            }
             return -EIO;
         }
         done += count;
@@ -531,6 +560,8 @@ static int wpipe_forget(struct wpipe *wp, struct nfsfh *fh) {
             wp->faults = fault->next;
             free(fault);
         }
+        wp->lost_fault_rc = 0;
+        wp->lost_fault_error[0] = '\0';
     }
     return detached;
 }
