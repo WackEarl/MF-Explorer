@@ -47,20 +47,22 @@
                 app:popupTheme="?actionBarPopupTheme" />
         </FrameLayout>
 
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/tabBarLayout"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:clipChildren="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:clipChildren="true"
+            android:clipToPadding="true">
 
             <com.google.android.material.tabs.TabLayout
                 android:id="@+id/tabLayout"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
                 android:background="@android:color/transparent"
+                android:clipChildren="true"
+                android:clipToPadding="true"
+                android:paddingEnd="@dimen/tab_layout_height"
+                android:paddingStart="0dp"
                 app:tabGravity="start"
                 app:tabIndicatorFullWidth="false"
                 app:tabMinWidth="48dp"
@@ -75,11 +77,12 @@
                 android:id="@+id/addTabButton"
                 android:layout_width="@dimen/tab_layout_height"
                 android:layout_height="@dimen/tab_layout_height"
-                android:background="?actionBarItemBackground"
+                android:layout_gravity="end|center_vertical"
+                android:background="@drawable/tab_add_button_background"
                 android:contentDescription="@string/file_list_action_new_tab"
                 android:src="@drawable/add_icon_white_24dp"
                 app:tint="?colorControlNormal" />
-        </LinearLayout>
+        </FrameLayout>
 
         <me.zhanghai.android.files.filelist.BreadcrumbLayout
             android:id="@+id/breadcrumbLayout"
