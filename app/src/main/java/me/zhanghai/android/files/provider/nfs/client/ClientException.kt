@@ -28,6 +28,7 @@ class ClientException(
             kind == NfsErrorKind.EXPORT_NOT_FOUND ->
                 NoSuchFileException(file, other, reason)
             kind == NfsErrorKind.ACCESS_DENIED ||
+                kind == NfsErrorKind.EXPORT_REFUSED ||
                 errno == OsConstants.EACCES ||
                 errno == OsConstants.EPERM ->
                 AccessDeniedException(file, other, reason)
@@ -50,3 +51,7 @@ internal fun appendCredentials(message: String?, uid: Int, gid: Int): String {
     val suffix = "(as UID $uid, GID $gid)"
     return if (message.isNullOrEmpty()) suffix else "$message $suffix"
 }
+
+/** The call failed because the connection to the server is down, not because of the file. */
+internal fun ClientException.isTransportFailure(): Boolean =
+    nfsErrorKind(errno, message)?.isTransportFailure == true

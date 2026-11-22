@@ -130,6 +130,7 @@ import me.zhanghai.android.files.util.showToast
 import me.zhanghai.android.files.util.startActivitySafe
 import me.zhanghai.android.files.util.supportsExternalStorageManager
 import me.zhanghai.android.files.util.takeIfNotEmpty
+import me.zhanghai.android.files.util.toUserMessage
 import me.zhanghai.android.files.util.valueCompat
 import me.zhanghai.android.files.util.viewModels
 import me.zhanghai.android.files.util.withChooser
@@ -889,7 +890,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val throwable = (stateful as? Failure)?.throwable
         if (throwable != null) {
             throwable.printStackTrace()
-            val error = throwable.toString()
+            val error = throwable.toUserMessage()
             if (hasFiles) {
                 showToast(error)
             } else {

@@ -654,6 +654,7 @@
     <string name="nfs_error_access_denied">Access to the NFS server was denied</string>
     <string name="nfs_error_server_unreachable">The NFS server is unreachable</string>
     <string name="nfs_error_export_not_found">The NFS export was not found</string>
+    <string name="nfs_error_export_refused">The NFS export was not found or is not shared with this device</string>
     <string name="storage_add_lan_smb_server_title" translatable="false">@string/storage_edit_smb_server_title_add</string>
     <string name="storage_add_lan_smb_server_loading">Searching for SMB servers…</string>
     <string name="storage_add_lan_smb_server_add">Add manually</string>

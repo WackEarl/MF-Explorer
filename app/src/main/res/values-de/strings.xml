@@ -540,6 +540,7 @@
     <string name="nfs_error_access_denied">Zugriff auf den NFS-Server verweigert</string>
     <string name="nfs_error_server_unreachable">NFS-Server nicht erreichbar</string>
     <string name="nfs_error_export_not_found">NFS-Export nicht gefunden</string>
+    <string name="nfs_error_export_refused">NFS-Export nicht gefunden oder für dieses Gerät nicht freigegeben</string>
     <string name="storage_add_lan_smb_server_loading">Suche nach SMB-Servern…</string>
     <string name="storage_add_lan_smb_server_add">Manuell hinzufügen</string>
     <string name="storage_edit_smb_server_title_edit">SMB-Server bearbeiten</string>

@@ -6,6 +6,7 @@
 package me.zhanghai.android.files.filejob
 
 import me.zhanghai.android.files.util.showToast
+import me.zhanghai.android.files.util.toUserMessage
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.Random
@@ -26,7 +27,7 @@ abstract class FileJob {
             e.printStackTrace()
         } catch (e: Exception) {
             e.printStackTrace()
-            service.showToast(e.toString())
+            service.showToast(e.toUserMessage())
         } finally {
             try {
                 service.notificationManager.cancel(id)

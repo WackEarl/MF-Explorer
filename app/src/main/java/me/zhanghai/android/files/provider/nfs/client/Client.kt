@@ -7,10 +7,13 @@ package me.zhanghai.android.files.provider.nfs.client
 
 import android.os.Looper
 import android.system.OsConstants
+import android.util.Log
 import java8.nio.channels.SeekableByteChannel
+import me.zhanghai.android.files.app.application
 import me.zhanghai.android.files.provider.common.ByteString
 import me.zhanghai.android.files.provider.common.LocalWatchService
 import me.zhanghai.android.files.provider.nfs.NfsPath
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
 
@@ -21,9 +24,16 @@ import java.util.concurrent.locks.ReentrantLock
  * and a write channel open together.
  */
 internal object Client {
-    private const val TIMEOUT_MILLIS = 30_000
+    private const val TAG = "NfsClient"
 
     private val mounts = mutableMapOf<Authority, Mount>()
+    private val incompleteFiles by lazy {
+        IncompleteFiles<Authority, ByteString, NfsPath>().apply {
+            val file = File(application.noBackupFilesDir, "nfs-pending-deletes")
+            restorePending(PendingDeleteStore.load(file))
+            onPendingChanged = { PendingDeleteStore.save(file, it) }
+        }
+    }
     private val pins = mutableMapOf<Authority, Int>()
 
     private class Mount(
@@ -33,6 +43,13 @@ internal object Client {
         var files: Int = 0,
         var alive: Boolean = true
     ) {
+        /**
+         * The network this context was mounted on is gone, or one of its calls failed in
+         * transport while a file was open. Replaced as soon as no file is open on it.
+         */
+        @Volatile
+        var stale: Boolean = false
+
         /** Lets a non-pipeline read give way to a list, open or stat waiting for [lock]. */
         val gate = WaiterGate(lock)
     }
@@ -65,6 +82,31 @@ internal object Client {
         }
     }
 
+    /**
+     * The default network was lost or replaced. Idle contexts are dropped now, so the next call
+     * mounts on the current network. A context with open files or a call in progress is marked
+     * stale and replaced by the next [use] once its files are closed.
+     */
+    fun onNetworkChanged() {
+        val all = synchronized(mounts) { mounts.values.toList() }
+        for (mount in all) {
+            mount.stale = true
+            if (!mount.lock.tryLock()) {
+                continue
+            }
+            try {
+                if (mount.alive && mount.files == 0) {
+                    Log.i(TAG, "Dropping NFS context for ${mount.authority} after a network change")
+                    retireLocked(mount)
+                }
+            } finally {
+                mount.lock.unlock()
+            }
+        }
+    }
+
+    private fun millisSince(startNanos: Long): Long = (System.nanoTime() - startNanos) / 1_000_000
+
     private fun checkThread() {
         check(Looper.myLooper() != Looper.getMainLooper()) { "NFS I/O on the main thread" }
     }
@@ -73,7 +115,9 @@ internal object Client {
         synchronized(mounts) {
             mounts[authority]?.let { return it }
         }
-        val context = NfsNative.create(authority.uid, authority.gid, TIMEOUT_MILLIS)
+        val context = NfsNative.create(
+            authority.uid, authority.gid, NfsTimeouts.MOUNT_TIMEOUT_MILLIS
+        )
         if (context == 0L) {
             throw error(0L, authority.host)
         }
@@ -90,6 +134,7 @@ internal object Client {
             NfsNative.destroy(context)
             throw exception
         }
+        NfsNative.setTimeout(context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
         return synchronized(mounts) {
             mounts[authority]?.let { existing ->
                 NfsNative.destroy(context)
@@ -115,22 +160,42 @@ internal object Client {
         block: (Mount) -> R
     ): R {
         checkThread()
+        val start = System.nanoTime()
         var transportRetry = true
         var firstFailure: ClientException? = null
+        // Remount plus replayed call, or 0 when this is not a replay.
+        var replayBudget = 0
         while (true) {
+            if (NfsTimeouts.failWithoutNetwork(NfsNetworkMonitor.isNetworkAvailable, authority.host)) {
+                val e = exception(OsConstants.ENETUNREACH, "Network is unreachable")
+                firstFailure?.let { e.addSuppressed(it) }
+                throw e
+            }
+            val mountStart = System.nanoTime()
             val mount = try {
                 mount(authority)
             } catch (e: ClientException) {
                 firstFailure?.let { e.addSuppressed(it) }
                 throw e
             }
+            val replayTimeout = if (replayBudget > 0) {
+                NfsTimeouts.replayTimeoutMillis(replayBudget, millisSince(mountStart))
+            } else {
+                0
+            }
             if (waiter) {
                 mount.gate.lockAsWaiter()
             } else {
                 mount.lock.lock()
             }
+            var timeoutChanged = false
             try {
                 if (!mount.alive) {
+                    continue
+                }
+                if (mount.stale && mount.files == 0) {
+                    Log.i(TAG, "Replacing stale NFS context for $authority")
+                    retireLocked(mount)
                     continue
                 }
                 // An open file holds an nfsfh from this context. Replaying the
@@ -140,24 +205,100 @@ internal object Client {
                 val canRemount = mount.files == 0
                 try {
                     mount.ensureSession()
+                    if (incompleteFiles.hasPending()) {
+                        deletePendingLocked(mount)
+                    }
+                    if (replayTimeout in 1 until NfsTimeouts.RPC_TIMEOUT_MILLIS) {
+                        NfsNative.setTimeout(mount.context, replayTimeout)
+                        timeoutChanged = true
+                    }
                     return block(mount)
                 } catch (e: ClientException) {
                     firstFailure?.let { e.addSuppressed(it) }
-                    if (transportRetry && canRemount && e.isTransportFailure()) {
+                    val transport = e.isTransportFailure()
+                    if (transport) {
+                        Log.w(
+                            TAG, "NFS transport failure on $authority (open files: " +
+                                "${mount.files}): errno ${e.errno}, ${e.message}"
+                        )
+                        if (!canRemount) {
+                            // Do not keep a dead context once the open files are closed.
+                            mount.stale = true
+                        }
+                    }
+                    if (transportRetry && canRemount && transport) {
                         transportRetry = false
                         firstFailure = e
                         retireLocked(mount)
                         if (replay) {
-                            continue
+                            // A call that already ran into the RPC timeout would wait for a
+                            // remount and a second timeout. Only replay within the budget.
+                            replayBudget = NfsTimeouts.replayBudgetMillis(millisSince(start))
+                            if (replayBudget > 0) {
+                                continue
+                            }
                         }
                     }
                     throw e.withCredentials(authority)
                 }
             } finally {
+                if (timeoutChanged && mount.alive && mount.context != 0L) {
+                    NfsNative.setTimeout(mount.context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
+                }
                 mount.lock.unlock()
                 reap(mount)
             }
         }
+    }
+
+    /**
+     * Removes partial files whose cleanup failed while the server was unreachable, before the
+     * call that found it reachable again runs. So a retried copy does not find the partial
+     * target. [Mount.lock] must be held.
+     */
+    private fun deletePendingLocked(mount: Mount) {
+        incompleteFiles.drain(mount.authority) { remote, path, maxSize ->
+            val remoteBytes = remote.borrowBytes()
+            val name = path ?: remote
+            val values = NfsNative.stat(mount.context, remoteBytes, true)
+            if (values == null || values[0] < 0) {
+                val e = error(mount.context, "")
+                return@drain if (e.isTransportFailure()) {
+                    IncompleteFiles.Outcome.RETRY
+                } else {
+                    IncompleteFiles.Outcome.DONE
+                }
+            }
+            val stat = NfsStat(values)
+            if (!IncompleteFiles.isStillOurs(OsConstants.S_ISREG(stat.mode), stat.size, maxSize)) {
+                Log.i(TAG, "Not deleting $name later: it changed since the failed write")
+                return@drain IncompleteFiles.Outcome.DONE
+            }
+            if (NfsNative.unlink(mount.context, remoteBytes) < 0) {
+                val e = error(mount.context, "")
+                Log.w(TAG, "Deleting incomplete $name failed: ${e.message}")
+                return@drain if (e.isTransportFailure()) {
+                    IncompleteFiles.Outcome.RETRY
+                } else {
+                    IncompleteFiles.Outcome.DONE
+                }
+            }
+            Log.i(TAG, "Deleted incomplete $name left by a lost connection")
+            path?.let { LocalWatchService.onEntryDeleted(it) }
+            IncompleteFiles.Outcome.DONE
+        }
+    }
+
+    /**
+     * A write to [path] failed because the connection was lost. [maxSize] is the end of what
+     * this process wrote to it.
+     */
+    internal fun markIncomplete(path: NfsPath, maxSize: Long) {
+        incompleteFiles.markIncomplete(path.authority, ByteString(path.remoteBytes), path, maxSize)
+    }
+
+    private fun forgetIncomplete(path: NfsPath) {
+        incompleteFiles.forget(path.authority, ByteString(path.remoteBytes))
     }
 
     /**
@@ -266,9 +407,6 @@ internal object Client {
             .also { it.stackTrace = stackTrace }
     }
 
-    private fun ClientException.isTransportFailure(): Boolean =
-        nfsErrorKind(errno, message)?.isTransportFailure == true
-
     private fun error(context: Long, file: String): ClientException {
         val errno = NfsNative.takeErrno()
         val message = if (context != 0L) NfsNative.getError(context) else "nfs_init_context failed"
@@ -318,19 +456,30 @@ internal object Client {
         use(path.authority) { mount ->
             check(mount.context, NfsNative.mkdir(mount.context, path.remoteBytes, mode), path.toString())
         }
+        forgetIncomplete(path)
         LocalWatchService.onEntryCreated(path)
     }
 
     fun delete(path: NfsPath) {
-        val attributes = stat(path, true)
-        use(path.authority) { mount ->
-            val rc = if (OsConstants.S_ISDIR(attributes.mode)) {
-                NfsNative.rmdir(mount.context, path.remoteBytes)
-            } else {
-                NfsNative.unlink(mount.context, path.remoteBytes)
+        try {
+            val attributes = stat(path, true)
+            use(path.authority) { mount ->
+                val rc = if (OsConstants.S_ISDIR(attributes.mode)) {
+                    NfsNative.rmdir(mount.context, path.remoteBytes)
+                } else {
+                    NfsNative.unlink(mount.context, path.remoteBytes)
+                }
+                check(mount.context, rc, path.toString())
             }
-            check(mount.context, rc, path.toString())
+        } catch (e: ClientException) {
+            // The cleanup of a copy that lost the connection: delete it once it is back.
+            if (e.isTransportFailure() &&
+                incompleteFiles.deferDelete(path.authority, ByteString(path.remoteBytes))) {
+                Log.i(TAG, "Will delete incomplete $path once the server is reachable")
+            }
+            throw e
         }
+        forgetIncomplete(path)
         LocalWatchService.onEntryDeleted(path)
     }
 
@@ -342,6 +491,8 @@ internal object Client {
                 source.toString()
             )
         }
+        forgetIncomplete(source)
+        forgetIncomplete(target)
         LocalWatchService.onEntryDeleted(source)
         LocalWatchService.onEntryCreated(target)
     }
@@ -419,6 +570,8 @@ internal object Client {
             opened
         }
         if (flags and OsConstants.O_CREAT != 0) {
+            // A new writer owns the name now. Its own failure marks it again.
+            forgetIncomplete(path)
             LocalWatchService.onEntryCreated(path)
         }
         return FileByteChannel(path, file, append, deleteOnClose, pipeline)

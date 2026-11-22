@@ -32,6 +32,8 @@ internal class FileByteChannel(
     private val writeBuffer = ByteArray(WRITE_BUFFER_SIZE)
     private var writeOffset = 0L
     private var writeLength = 0
+    /** End of everything handed to [bufferWrite]; unbounded once appending. */
+    private var maxWrittenEnd = 0L
 
     override fun onReadAsync(position: Long, size: Int, timeoutMillis: Long): Future<ByteBuffer> =
         LazyRead(position, size)
@@ -116,6 +118,9 @@ internal class FileByteChannel(
             writeLength += count
             if (!appending) {
                 next += count
+                maxWrittenEnd = maxOf(maxWrittenEnd, next)
+            } else {
+                maxWrittenEnd = Long.MAX_VALUE
             }
             if (writeLength == writeBuffer.size) {
                 flushWrite()
@@ -137,7 +142,7 @@ internal class FileByteChannel(
                     Client.pwrite(path, file, writeBuffer, length, offset)
                 }
             } catch (e: ClientException) {
-                throw e.toFileSystemException(path.toString())
+                throw writeFailed(e)
             }
             if (writtenBytes <= 0) {
                 throw ClientException(android.system.OsConstants.EIO, "Short NFS write")
@@ -159,7 +164,7 @@ internal class FileByteChannel(
         try {
             Client.ftruncate(path, file, size)
         } catch (e: ClientException) {
-            throw e.toFileSystemException(path.toString())
+            throw writeFailed(e)
         }
         written = true
     }
@@ -185,7 +190,7 @@ internal class FileByteChannel(
         try {
             Client.fsync(path, file)
         } catch (e: ClientException) {
-            throw e.toFileSystemException(path.toString())
+            throw writeFailed(e)
         }
     }
 
@@ -198,7 +203,8 @@ internal class FileByteChannel(
                     try {
                         Client.closeFile(path, file, deleteOnClose)
                     } catch (e: ClientException) {
-                        throw e.toFileSystemException(path.toString())
+                        // A queued WRITE can fail on close.
+                        throw writeFailed(e)
                     }
                 },
                 onHandleClosed = { nativeClosed = true }
@@ -211,6 +217,17 @@ internal class FileByteChannel(
     }
 
     override fun onCloseFailed(exception: IOException): Boolean = nativeClosed
+
+    /**
+     * A write that failed because the connection was lost leaves a partial file. Remember it,
+     * so a cleanup delete that fails for the same reason is repeated later.
+     */
+    private fun writeFailed(e: ClientException): IOException {
+        if (maxWrittenEnd > 0L && e.isTransportFailure()) {
+            Client.markIncomplete(path, maxWrittenEnd)
+        }
+        return e.toFileSystemException(path.toString())
+    }
 
     companion object {
         private const val WRITE_BUFFER_SIZE = 1024 * 1024
