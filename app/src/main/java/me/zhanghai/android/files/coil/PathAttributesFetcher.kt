@@ -17,7 +17,6 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.key.Keyer
 import coil.request.Options
-import coil.size.Dimension
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
 import kotlinx.coroutines.Job
@@ -72,18 +71,15 @@ class PathAttributesFetcher(
 ) : Fetcher {
     override suspend fun fetch(): FetchResult? {
         val (path, attributes) = data
-        val (width, height) = options.size
-        // @see android.provider.MediaStore.ThumbnailConstants.MINI_SIZE
-        val isThumbnail = width is Dimension.Pixels && width.px <= 512
-            && height is Dimension.Pixels && height.px <= 384
-        if (isThumbnail) {
-            width as Dimension.Pixels
-            height as Dimension.Pixels
+        val thumbnailSize = RemoteThumbnailDiskCache.thumbnailSize(options.size)
+        val isThumbnail = thumbnailSize != null
+        if (thumbnailSize != null) {
+            val (width, height) = thumbnailSize
             if (path.isDocumentPath && attributes.documentSupportsThumbnail) {
                 val thumbnail = runWithCancellationSignal { signal ->
                     try {
                         DocumentResolver.getThumbnail(
-                            path as DocumentResolver.Path, width.px, height.px, signal
+                            path as DocumentResolver.Path, width, height, signal
                         )
                     } catch (e: ResolverException) {
                         e.printStackTrace()
@@ -103,6 +99,11 @@ class PathAttributesFetcher(
                 if (!shouldReadRemotePath) {
                     error("Cannot read $path for thumbnail")
                 }
+                // A stored copy is read before the remote file, and without waiting for one of
+                // the few NFS thumbnail reads.
+                RemoteThumbnailDiskCache.readStored(
+                    path, attributes, width, height, options, imageLoader
+                )?.let { return it }
             }
         }
         // A thumbnail read stays out of the NFS read pipeline. The option is stored on the
