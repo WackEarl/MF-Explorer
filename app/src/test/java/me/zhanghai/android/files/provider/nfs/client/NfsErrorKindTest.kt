@@ -76,6 +76,14 @@ class NfsErrorKindTest {
     }
 
     @Test
+    fun closedContextOfAnOpenFileIsAConnectionLoss() {
+        // rc1 B5: a cleanup that runs on a dropped context must count as transport failure.
+        val kind = nfsErrorKind(OsConstants.EIO, "NFS connection closed")
+        assertEquals(NfsErrorKind.CONNECTION_LOST, kind)
+        assertTrue(kind!!.isTransportFailure)
+    }
+
+    @Test
     fun mapsServerUnreachableMessages() {
         assertEquals(
             NfsErrorKind.SERVER_UNREACHABLE,

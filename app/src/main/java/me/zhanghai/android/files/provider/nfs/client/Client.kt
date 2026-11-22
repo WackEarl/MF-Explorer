@@ -6,12 +6,14 @@
 package me.zhanghai.android.files.provider.nfs.client
 
 import android.os.Looper
-import android.util.Log
 import android.system.OsConstants
+import android.util.Log
 import java8.nio.channels.SeekableByteChannel
+import me.zhanghai.android.files.app.application
 import me.zhanghai.android.files.provider.common.ByteString
 import me.zhanghai.android.files.provider.common.LocalWatchService
 import me.zhanghai.android.files.provider.nfs.NfsPath
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
 
@@ -25,6 +27,13 @@ internal object Client {
     private const val TAG = "NfsClient"
 
     private val mounts = mutableMapOf<Authority, Mount>()
+    private val incompleteFiles by lazy {
+        IncompleteFiles<Authority, ByteString, NfsPath>().apply {
+            val file = File(application.noBackupFilesDir, "nfs-pending-deletes")
+            restorePending(PendingDeleteStore.load(file))
+            onPendingChanged = { PendingDeleteStore.save(file, it) }
+        }
+    }
     private val pins = mutableMapOf<Authority, Int>()
 
     private class Mount(
@@ -196,6 +205,9 @@ internal object Client {
                 val canRemount = mount.files == 0
                 try {
                     mount.ensureSession()
+                    if (incompleteFiles.hasPending()) {
+                        deletePendingLocked(mount)
+                    }
                     if (replayTimeout in 1 until NfsTimeouts.RPC_TIMEOUT_MILLIS) {
                         NfsNative.setTimeout(mount.context, replayTimeout)
                         timeoutChanged = true
@@ -237,6 +249,56 @@ internal object Client {
                 reap(mount)
             }
         }
+    }
+
+    /**
+     * Removes partial files whose cleanup failed while the server was unreachable, before the
+     * call that found it reachable again runs. So a retried copy does not find the partial
+     * target. [Mount.lock] must be held.
+     */
+    private fun deletePendingLocked(mount: Mount) {
+        incompleteFiles.drain(mount.authority) { remote, path, maxSize ->
+            val remoteBytes = remote.borrowBytes()
+            val name = path ?: remote
+            val values = NfsNative.stat(mount.context, remoteBytes, true)
+            if (values == null || values[0] < 0) {
+                val e = error(mount.context, "")
+                return@drain if (e.isTransportFailure()) {
+                    IncompleteFiles.Outcome.RETRY
+                } else {
+                    IncompleteFiles.Outcome.DONE
+                }
+            }
+            val stat = NfsStat(values)
+            if (!IncompleteFiles.isStillOurs(OsConstants.S_ISREG(stat.mode), stat.size, maxSize)) {
+                Log.i(TAG, "Not deleting $name later: it changed since the failed write")
+                return@drain IncompleteFiles.Outcome.DONE
+            }
+            if (NfsNative.unlink(mount.context, remoteBytes) < 0) {
+                val e = error(mount.context, "")
+                Log.w(TAG, "Deleting incomplete $name failed: ${e.message}")
+                return@drain if (e.isTransportFailure()) {
+                    IncompleteFiles.Outcome.RETRY
+                } else {
+                    IncompleteFiles.Outcome.DONE
+                }
+            }
+            Log.i(TAG, "Deleted incomplete $name left by a lost connection")
+            path?.let { LocalWatchService.onEntryDeleted(it) }
+            IncompleteFiles.Outcome.DONE
+        }
+    }
+
+    /**
+     * A write to [path] failed because the connection was lost. [maxSize] is the end of what
+     * this process wrote to it.
+     */
+    internal fun markIncomplete(path: NfsPath, maxSize: Long) {
+        incompleteFiles.markIncomplete(path.authority, ByteString(path.remoteBytes), path, maxSize)
+    }
+
+    private fun forgetIncomplete(path: NfsPath) {
+        incompleteFiles.forget(path.authority, ByteString(path.remoteBytes))
     }
 
     /**
@@ -345,9 +407,6 @@ internal object Client {
             .also { it.stackTrace = stackTrace }
     }
 
-    private fun ClientException.isTransportFailure(): Boolean =
-        nfsErrorKind(errno, message)?.isTransportFailure == true
-
     private fun error(context: Long, file: String): ClientException {
         val errno = NfsNative.takeErrno()
         val message = if (context != 0L) NfsNative.getError(context) else "nfs_init_context failed"
@@ -397,19 +456,30 @@ internal object Client {
         use(path.authority) { mount ->
             check(mount.context, NfsNative.mkdir(mount.context, path.remoteBytes, mode), path.toString())
         }
+        forgetIncomplete(path)
         LocalWatchService.onEntryCreated(path)
     }
 
     fun delete(path: NfsPath) {
-        val attributes = stat(path, true)
-        use(path.authority) { mount ->
-            val rc = if (OsConstants.S_ISDIR(attributes.mode)) {
-                NfsNative.rmdir(mount.context, path.remoteBytes)
-            } else {
-                NfsNative.unlink(mount.context, path.remoteBytes)
+        try {
+            val attributes = stat(path, true)
+            use(path.authority) { mount ->
+                val rc = if (OsConstants.S_ISDIR(attributes.mode)) {
+                    NfsNative.rmdir(mount.context, path.remoteBytes)
+                } else {
+                    NfsNative.unlink(mount.context, path.remoteBytes)
+                }
+                check(mount.context, rc, path.toString())
             }
-            check(mount.context, rc, path.toString())
+        } catch (e: ClientException) {
+            // The cleanup of a copy that lost the connection: delete it once it is back.
+            if (e.isTransportFailure() &&
+                incompleteFiles.deferDelete(path.authority, ByteString(path.remoteBytes))) {
+                Log.i(TAG, "Will delete incomplete $path once the server is reachable")
+            }
+            throw e
         }
+        forgetIncomplete(path)
         LocalWatchService.onEntryDeleted(path)
     }
 
@@ -421,6 +491,8 @@ internal object Client {
                 source.toString()
             )
         }
+        forgetIncomplete(source)
+        forgetIncomplete(target)
         LocalWatchService.onEntryDeleted(source)
         LocalWatchService.onEntryCreated(target)
     }
@@ -498,6 +570,8 @@ internal object Client {
             opened
         }
         if (flags and OsConstants.O_CREAT != 0) {
+            // A new writer owns the name now. Its own failure marks it again.
+            forgetIncomplete(path)
             LocalWatchService.onEntryCreated(path)
         }
         return FileByteChannel(path, file, append, deleteOnClose, pipeline)

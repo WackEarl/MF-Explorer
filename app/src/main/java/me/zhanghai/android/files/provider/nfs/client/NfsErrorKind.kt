@@ -74,6 +74,7 @@ internal fun nfsErrorKind(errno: Int, message: String?): NfsErrorKind? {
             text.contains("Socket closed") ||
             text.contains("Socket failed") ||
             text.contains("not connected") ||
+            text.contains("NFS connection closed") ||
             text.contains("Failed to reconnect") ||
             text.contains("reconnect failed") ||
             text.contains("socket error") ||
