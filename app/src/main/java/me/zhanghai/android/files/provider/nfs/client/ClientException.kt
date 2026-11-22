@@ -21,20 +21,28 @@ class ClientException(
     val errno: Int,
     message: String?
 ) : Exception(message) {
-    fun toFileSystemException(file: String?, other: String? = null): FileSystemException =
-        when (errno) {
-            OsConstants.ENOENT -> NoSuchFileException(file, other, message)
-            OsConstants.EEXIST -> FileAlreadyExistsException(file, other, message)
-            OsConstants.EACCES, OsConstants.EPERM -> AccessDeniedException(file, other, message)
-            OsConstants.EROFS -> ReadOnlyFileSystemException(file, other, message)
-            OsConstants.ENOTEMPTY -> DirectoryNotEmptyException(file)
-            OsConstants.ENOTDIR -> NotDirectoryException(file)
-            OsConstants.EINVAL, OsConstants.ENAMETOOLONG ->
-                InvalidFileNameException(file, other, message)
-            OsConstants.ELOOP -> FileSystemLoopException(file)
-            OsConstants.EISDIR -> IsDirectoryException(file, other, message)
-            else -> FileSystemException(file, other, message)
+    fun toFileSystemException(file: String?, other: String? = null): FileSystemException {
+        val kind = nfsErrorKind(errno, message)
+        val reason = kind?.userMessage() ?: message
+        return when {
+            kind == NfsErrorKind.EXPORT_NOT_FOUND ->
+                NoSuchFileException(file, other, reason)
+            kind == NfsErrorKind.ACCESS_DENIED ||
+                errno == OsConstants.EACCES ||
+                errno == OsConstants.EPERM ->
+                AccessDeniedException(file, other, reason)
+            errno == OsConstants.ENOENT -> NoSuchFileException(file, other, reason)
+            errno == OsConstants.EEXIST -> FileAlreadyExistsException(file, other, reason)
+            errno == OsConstants.EROFS -> ReadOnlyFileSystemException(file, other, reason)
+            errno == OsConstants.ENOTEMPTY -> DirectoryNotEmptyException(file)
+            errno == OsConstants.ENOTDIR -> NotDirectoryException(file)
+            errno == OsConstants.EINVAL || errno == OsConstants.ENAMETOOLONG ->
+                InvalidFileNameException(file, other, reason)
+            errno == OsConstants.ELOOP -> FileSystemLoopException(file)
+            errno == OsConstants.EISDIR -> IsDirectoryException(file, other, reason)
+            else -> FileSystemException(file, other, reason)
         }.apply { initCause(this@ClientException) }
+    }
 }
 
 /** Adds the AUTH_SYS identity to an access error, e.g. "... NFS3ERR_ACCES(-13) (as UID 65534, GID 65534)". */
