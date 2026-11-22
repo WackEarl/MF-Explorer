@@ -649,6 +649,11 @@
     <string name="storage_edit_nfs_server_name_placeholder">Use hostname</string>
     <string name="storage_edit_nfs_server_connect_and_add">Connect and add</string>
     <string name="storage_edit_nfs_server_add">Add</string>
+    <string name="nfs_error_timeout">The NFS request timed out</string>
+    <string name="nfs_error_connection_lost">Connection to the NFS server was lost</string>
+    <string name="nfs_error_access_denied">Access to the NFS server was denied</string>
+    <string name="nfs_error_server_unreachable">The NFS server is unreachable</string>
+    <string name="nfs_error_export_not_found">The NFS export was not found</string>
     <string name="storage_add_lan_smb_server_title" translatable="false">@string/storage_edit_smb_server_title_add</string>
     <string name="storage_add_lan_smb_server_loading">Searching for SMB servers…</string>
     <string name="storage_add_lan_smb_server_add">Add manually</string>

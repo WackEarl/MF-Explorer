@@ -266,25 +266,8 @@ internal object Client {
             .also { it.stackTrace = stackTrace }
     }
 
-    private fun ClientException.isTransportFailure(): Boolean {
-        val text = message ?: return false
-        // Protocol errors quote the path ("NFS: Lookup of <path> failed...").
-        // A name like "reconnect" must not drop the session.
-        if (text.contains("NFS:") || text.contains("NFS3ERR")) {
-            return false
-        }
-        return text.contains("nfs_service failed") ||
-            text.contains("Poll failed") ||
-            text.contains("Socket closed") ||
-            text.contains("Socket failed") ||
-            text.contains("not connected") ||
-            text.contains("Failed to reconnect") ||
-            text.contains("reconnect failed") ||
-            text.contains("command timed out") ||
-            text.contains("Command timed out") ||
-            text.contains("Timeout reached") ||
-            text.contains("socket error")
-    }
+    private fun ClientException.isTransportFailure(): Boolean =
+        nfsErrorKind(errno, message)?.isTransportFailure == true
 
     private fun error(context: Long, file: String): ClientException {
         val errno = NfsNative.takeErrno()
