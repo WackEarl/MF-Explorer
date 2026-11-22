@@ -17,7 +17,7 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '21'
-    - name: Run host pipe-depth test
+    - name: Run host NFS pipeline tests
       run: ./gradlew :app:testPipeDepth
     - name: Build with Gradle
       run: ./gradlew assembleDebug lintVitalRelease

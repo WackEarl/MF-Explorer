@@ -44,4 +44,29 @@ static inline int pipe_depth_from_rcvbuf(int got, size_t iosize) {
     return (int) depth;
 }
 
+/*
+ * Slots one file handle keeps in flight for WRITEs of chunk bytes. got is
+ * SO_SNDBUF as returned by getsockopt; Android clamps it like SO_RCVBUF.
+ * WRITEs past the send buffer wait in libnfs's queue and go out as the
+ * socket drains. A server with a small wtmax still gets about
+ * PIPE_MIN_DEPTH MiB in flight, up to PIPE_SLOTS WRITEs.
+ */
+static inline int pipe_write_depth(int got, size_t chunk) {
+    int depth;
+    size_t floor;
+
+    if (chunk == 0) {
+        chunk = 1024 * 1024;
+    }
+    depth = pipe_depth_from_rcvbuf(got, chunk);
+    floor = (size_t) PIPE_MIN_DEPTH * 1024 * 1024 / chunk;
+    if (floor > PIPE_SLOTS) {
+        floor = PIPE_SLOTS;
+    }
+    if ((size_t) depth < floor) {
+        depth = (int) floor;
+    }
+    return depth;
+}
+
 #endif

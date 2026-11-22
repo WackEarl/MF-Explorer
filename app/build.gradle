@@ -231,24 +231,31 @@ dependencies {
 //#endif
 }
 
-// Host test for pipe_depth_from_rcvbuf() in nfs-pipe-depth.h. Uses the
-// system cc, not the NDK, because the header is portable C.
+// Host tests for the NFS read-ahead depth (nfs-pipe-depth.h) and the write
+// pipeline (nfs-write-pipe.h). Use the system cc, not the NDK, because the
+// headers are portable C.
 tasks.register('testPipeDepth', Exec) {
-    def source = file('src/test/c/pipe_depth_test.c')
+    def depthSource = file('src/test/c/pipe_depth_test.c')
+    def writeSource = file('src/test/c/write_pipe_test.c')
     def includeDir = file('src/main/jni')
-    def exeFile = layout.buildDirectory.file('tmp/pipe_depth_test').get().asFile
-    inputs.files(source, file('src/main/jni/nfs-pipe-depth.h'))
+    def depthExe = layout.buildDirectory.file('tmp/pipe_depth_test').get().asFile
+    def writeExe = layout.buildDirectory.file('tmp/write_pipe_test').get().asFile
+    inputs.files(depthSource, writeSource, file('src/main/jni/nfs-pipe-depth.h'),
+            file('src/main/jni/nfs-write-pipe.h'))
     // Always run the assertions, not only when the sources change.
     outputs.upToDateWhen { false }
     doFirst {
-        exeFile.parentFile.mkdirs()
+        depthExe.parentFile.mkdirs()
     }
     commandLine 'sh', '-eu', '-c',
-            'cc -Wall -Werror -I "$1" -o "$2" "$3" && "$2"',
+            'cc -Wall -Werror -I "$1" -o "$2" "$3" && "$2" && ' +
+                    'cc -Wall -Werror -I "$1" -o "$4" "$5" && "$4"',
             'pipe_depth_test',
             includeDir.absolutePath,
-            exeFile.absolutePath,
-            source.absolutePath
+            depthExe.absolutePath,
+            depthSource.absolutePath,
+            writeExe.absolutePath,
+            writeSource.absolutePath
 }
 
 tasks.configureEach { task ->

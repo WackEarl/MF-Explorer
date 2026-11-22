@@ -14,6 +14,7 @@
 #include <fcntl.h>
 
 #include "nfs-pipe-depth.h"
+#include "nfs-write-pipe.h"
 
 /* libnfs-raw-nfs.h defines NFS_V3. The public header only names it. */
 #define NFS_VERSION_3 3
@@ -136,6 +137,11 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_create(JNIEnv *env,
 
 static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh);
 static void pipe_invalidate(struct nfs_context *nfs, struct nfsfh *fh);
+static int writes_drain(struct nfs_context *nfs, struct nfsfh *fh);
+static int writes_close(struct nfs_context *nfs, struct nfsfh *fh);
+
+/* libnfs-private.h. Lets a deferred write error carry its own text. */
+void nfs_set_error(struct nfs_context *nfs, char *error_string, ...);
 
 JNIEXPORT void JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_destroy(JNIEnv *env, jclass clazz,
@@ -179,7 +185,8 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_mount(JNIEnv *env, 
     /* FSINFO clamps rsize, wsize and readdir to the advertised maxima.
      * Ask for 1 MiB reads and listings afterwards anyway: a short reply is
      * legal. wsize stays at min(1 MiB, wtmax): a WRITE is one RPC record,
-     * and a server drops the connection on a record above its maximum. */
+     * and a server drops the connection on a record above its maximum.
+     * The write pipeline splits larger writes into wtmax chunks. */
     if (rc == 0) {
         nfs_set_readmax(context_from(context), 1024 * 1024);
         nfs_set_readdir_max_buffer_size(context_from(context), 1024 * 1024, 1024 * 1024);
@@ -201,6 +208,15 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_open(JNIEnv *env, j
         tls_errno = ENOMEM;
         return 0;
     }
+    /* A truncate must not race a WRITE still in flight on another handle. */
+    if ((flags & O_TRUNC) != 0) {
+        rc = writes_drain(context_from(context), NULL);
+        if (rc < 0) {
+            free(path_chars);
+            fail(rc);
+            return 0;
+        }
+    }
     rc = nfs_open2(context_from(context), path_chars, flags, mode, &file);
     free(path_chars);
     fail(rc);
@@ -216,12 +232,26 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_open(JNIEnv *env, j
 JNIEXPORT jint JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_closeFile(JNIEnv *env, jclass clazz,
                                                                       jlong context, jlong file) {
+    int write_rc = 0;
+    int rc;
+    char error[WPIPE_ERR_LEN];
+
     (void) env;
     (void) clazz;
     if (context != 0 && file != 0) {
+        write_rc = writes_close(context_from(context), file_from(file));
+        if (write_rc < 0) {
+            wpipe_copy_error(error, nfs_get_error(context_from(context)));
+        }
         pipe_drop(context_from(context), file_from(file));
     }
-    return fail(nfs_close(context_from(context), file_from(file)));
+    /* Always close: the handle is freed even when a WRITE failed. */
+    rc = nfs_close(context_from(context), file_from(file));
+    if (write_rc < 0) {
+        nfs_set_error(context_from(context), "%s", error);
+        return fail(write_rc);
+    }
+    return fail(rc);
 }
 
 /*
@@ -268,10 +298,14 @@ struct pipe {
     int primed;
     int have_expect;
     struct pipe_slot slot[PIPE_SLOTS];
+    /* WRITEs in flight. Separate slots: a copy between two files on one
+     * mount reads and writes on this context at the same time. */
+    struct wpipe w;
 };
 
 static struct pipe *pipes;
 static pthread_mutex_t pipe_lock = PTHREAD_MUTEX_INITIALIZER;
+static const struct wpipe_ops write_ops;
 
 void rpc_abort_pending(struct rpc_context *rpc, const char *error, int reconnect);
 
@@ -308,6 +342,7 @@ static struct pipe *pipe_find(struct nfs_context *nfs, int create) {
         return NULL;
     }
     pipe->nfs = nfs;
+    wpipe_init(&pipe->w, &write_ops, nfs);
     pipe->next = pipes;
     pipes = pipe;
     pthread_mutex_unlock(&pipe_lock);
@@ -447,6 +482,63 @@ static void pipe_flush(struct nfs_context *nfs) {
             return;
         }
     }
+}
+
+static int write_issue(struct nfs_context *nfs, struct nfsfh *fh, const void *buf, size_t count,
+                       uint64_t offset, wpipe_cb_fn cb, void *private_data) {
+    return nfs_pwrite_async(nfs, fh, buf, count, offset, cb, private_data);
+}
+
+static int write_sync(struct nfs_context *nfs, struct nfsfh *fh, const void *buf, size_t count,
+                      uint64_t offset) {
+    return nfs_pwrite(nfs, fh, buf, count, offset);
+}
+
+static int write_wants_write(struct nfs_context *nfs) {
+    return (nfs_which_events(nfs) & POLLOUT) != 0;
+}
+
+static int write_timeout_ms(struct nfs_context *nfs) {
+    return nfs_get_timeout(nfs);
+}
+
+static int write_fh_equal(struct nfsfh *a, struct nfsfh *b) {
+    return nfs_fh_equal(a, b);
+}
+
+static const char *write_get_error(struct nfs_context *nfs) {
+    return nfs_get_error(nfs);
+}
+
+static void write_set_error(struct nfs_context *nfs, const char *message) {
+    nfs_set_error(nfs, "%s", message);
+}
+
+static const struct wpipe_ops write_ops = {
+    .issue = write_issue,
+    .write_sync = write_sync,
+    .service = pipe_service,
+    .wants_write = write_wants_write,
+    .timeout_ms = write_timeout_ms,
+    .fh_equal = write_fh_equal,
+    .get_error = write_get_error,
+    .set_error = write_set_error,
+    .now_ms = pipe_now_ms,
+};
+
+/* SO_SNDBUF and wtmax decide how many WRITEs one handle keeps in flight. */
+static int write_depth_for(struct nfs_context *nfs, size_t chunk) {
+    int fd = nfs_get_fd(nfs);
+    int got = 0;
+    socklen_t len = sizeof(got);
+
+    if (fd < 0) {
+        return 1;
+    }
+    if (getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &got, &len) != 0) {
+        got = 0;
+    }
+    return pipe_write_depth(got, chunk);
 }
 
 /*
@@ -807,7 +899,11 @@ static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh) {
     if (pipe == NULL) {
         return;
     }
-    for (i = 0; i < PIPE_SLOTS; i++) {
+    /* closeFile already settled this handle's WRITEs. */
+    if (fh == NULL && wpipe_drain(&pipe->w, NULL) < 0) {
+        stuck = 1;
+    }
+    for (i = 0; i < PIPE_SLOTS && !stuck; i++) {
         struct pipe_slot *slot = &pipe->slot[i];
 
         if (slot->state != 1) {
@@ -836,6 +932,11 @@ static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh) {
                 pipe_settle(nfs);
             }
         }
+    }
+    if (fh == NULL) {
+        /* Frees answered WRITEs and their errors. One still in flight
+         * keeps the pipe alive below. */
+        wpipe_forget(&pipe->w, NULL);
     }
     for (i = 0; i < PIPE_SLOTS; i++) {
         struct pipe_slot *slot = &pipe->slot[i];
@@ -868,7 +969,7 @@ static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh) {
         return;
     }
     for (i = 0; i < PIPE_SLOTS; i++) {
-        if (pipe->slot[i].state == 1) {
+        if (pipe->slot[i].state == 1 || pipe->w.slot[i].state == 1) {
             /*
              * A callback can still write this slot. Unlink the pipe and
              * leak it. Freeing it here would be a use-after-free.
@@ -880,6 +981,47 @@ static void pipe_drop(struct nfs_context *nfs, struct nfsfh *fh) {
     }
     pipe_unlink(pipe);
     free(pipe);
+}
+
+/*
+ * Waits for WRITEs in flight on fh's file, or on every file when fh is NULL.
+ * Their errors stay with their handles. 0 or a negative errno. READ, fstat
+ * and ftruncate wait for their file; an O_TRUNC open and path changes
+ * (unlink, rmdir, rename, chmod, chown, utimes) for all files, so they
+ * apply after the WRITEs already sent. List, stat and plain opens do not
+ * wait, so a listing never queues behind a copy's WRITE replies.
+ */
+static int writes_drain(struct nfs_context *nfs, struct nfsfh *fh) {
+    struct pipe *pipe = pipe_find(nfs, 0);
+
+    if (pipe == NULL || !wpipe_busy(&pipe->w, fh)) {
+        return 0;
+    }
+    return wpipe_drain(&pipe->w, fh);
+}
+
+/* Before nfs_close: every WRITE of fh answered or dropped, then its error. */
+static int writes_close(struct nfs_context *nfs, struct nfsfh *fh) {
+    struct pipe *pipe = pipe_find(nfs, 0);
+    int stuck = 0;
+    int rc;
+
+    if (pipe == NULL) {
+        return 0;
+    }
+    rc = wpipe_close(&pipe->w, fh, &stuck);
+    if (stuck) {
+        struct rpc_context *rpc = nfs_get_rpc_context(nfs);
+
+        /* The WRITE buffers stay with their slots until the callbacks run,
+         * and the handle must not be freed under a WRITE libnfs still has. */
+        if (rpc != NULL) {
+            rpc_abort_pending(rpc, "nfs write dropped", 1);
+            pipe_settle(nfs);
+        }
+        wpipe_forget(&pipe->w, fh);
+    }
+    return rc;
 }
 
 static int pipe_after(struct pipe *pipe, struct nfsfh *fh, uint64_t offset, int rc, int length) {
@@ -979,6 +1121,12 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pread(JNIEnv *env, 
         tls_errno = EINVAL;
         return -EINVAL;
     }
+    /* A READ must see the bytes this file's WRITEs in flight carry. */
+    rc = writes_drain(context_from(context), file_from(file));
+    if (rc < 0) {
+        (*env)->ReleaseByteArrayElements(env, buffer, bytes, JNI_ABORT);
+        return fail(rc);
+    }
     if (pipeline) {
         rc = pipe_pread(context_from(context), file_from(file), (char *) bytes, length,
                          (uint64_t) offset);
@@ -1001,6 +1149,7 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pwrite(JNIEnv *env,
                                                                    jbyteArray buffer, jint length,
                                                                    jlong offset) {
     jbyte *bytes;
+    struct pipe *pipe;
     int rc;
     (void) clazz;
     bytes = (*env)->GetByteArrayElements(env, buffer, NULL);
@@ -1014,8 +1163,16 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pwrite(JNIEnv *env,
         return -EINVAL;
     }
     pipe_invalidate(context_from(context), file_from(file));
-    rc = nfs_pwrite(context_from(context), file_from(file), bytes, (size_t) length,
-                    (uint64_t) offset);
+    pipe = pipe_find(context_from(context), 1);
+    if (pipe == NULL) {
+        rc = nfs_pwrite(context_from(context), file_from(file), bytes, (size_t) length,
+                        (uint64_t) offset);
+    } else {
+        size_t chunk = nfs_get_writemax(context_from(context));
+
+        rc = wpipe_write(&pipe->w, file_from(file), (const char *) bytes, length,
+                         (uint64_t) offset, chunk, write_depth_for(context_from(context), chunk));
+    }
     (*env)->ReleaseByteArrayElements(env, buffer, bytes, JNI_ABORT);
     return fail(rc);
 }
@@ -1023,8 +1180,17 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_pwrite(JNIEnv *env,
 JNIEXPORT jint JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_fsync(JNIEnv *env, jclass clazz,
                                                                   jlong context, jlong file) {
+    struct pipe *pipe = pipe_find(context_from(context), 0);
+    int rc;
+
     (void) env;
     (void) clazz;
+    if (pipe != NULL) {
+        rc = wpipe_flush(&pipe->w, file_from(file));
+        if (rc < 0) {
+            return fail(rc);
+        }
+    }
     return fail(nfs_fsync(context_from(context), file_from(file)));
 }
 
@@ -1032,8 +1198,14 @@ JNIEXPORT jint JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_ftruncate(JNIEnv *env, jclass clazz,
                                                                       jlong context, jlong file,
                                                                       jlong size) {
+    int rc;
+
     (void) env;
     (void) clazz;
+    rc = writes_drain(context_from(context), file_from(file));
+    if (rc < 0) {
+        return fail(rc);
+    }
     pipe_invalidate(context_from(context), file_from(file));
     return fail(nfs_ftruncate(context_from(context), file_from(file), (uint64_t) size));
 }
@@ -1173,7 +1345,11 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_fstat(JNIEnv *env, 
     int rc;
     (void) clazz;
     memset(&st, 0, sizeof(st));
-    rc = nfs_fstat64(context_from(context), file_from(file), &st);
+    /* The size must include WRITEs still in flight. */
+    rc = writes_drain(context_from(context), file_from(file));
+    if (rc == 0) {
+        rc = nfs_fstat64(context_from(context), file_from(file), &st);
+    }
     fail(rc);
     return stat_result(env, rc < 0 ? rc : 0, &st);
 }
@@ -1204,7 +1380,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_rmdir(JNIEnv *env, 
         tls_errno = ENOMEM;
         return -ENOMEM;
     }
-    rc = nfs_rmdir(context_from(context), path_chars);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_rmdir(context_from(context), path_chars);
+    }
     free(path_chars);
     return fail(rc);
 }
@@ -1219,7 +1398,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_unlink(JNIEnv *env,
         tls_errno = ENOMEM;
         return -ENOMEM;
     }
-    rc = nfs_unlink(context_from(context), path_chars);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_unlink(context_from(context), path_chars);
+    }
     free(path_chars);
     return fail(rc);
 }
@@ -1238,7 +1420,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_rename(JNIEnv *env,
         tls_errno = ENOMEM;
         return -ENOMEM;
     }
-    rc = nfs_rename(context_from(context), from_chars, to_chars);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_rename(context_from(context), from_chars, to_chars);
+    }
     free(from_chars);
     free(to_chars);
     return fail(rc);
@@ -1308,7 +1493,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_chmod(JNIEnv *env, 
         tls_errno = ENOMEM;
         return -ENOMEM;
     }
-    rc = nfs_chmod(context_from(context), path_chars, mode);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_chmod(context_from(context), path_chars, mode);
+    }
     free(path_chars);
     return fail(rc);
 }
@@ -1324,7 +1512,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_chown(JNIEnv *env, 
         tls_errno = ENOMEM;
         return -ENOMEM;
     }
-    rc = nfs_chown(context_from(context), path_chars, uid, gid);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_chown(context_from(context), path_chars, uid, gid);
+    }
     free(path_chars);
     return fail(rc);
 }
@@ -1357,7 +1548,10 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_utimes(JNIEnv *env,
     times[0].tv_usec = nsec_to_usec(atime_nsec);
     times[1].tv_sec = (time_t) mtime_sec;
     times[1].tv_usec = nsec_to_usec(mtime_nsec);
-    rc = nfs_utimes(context_from(context), path_chars, times);
+    rc = writes_drain(context_from(context), NULL);
+    if (rc == 0) {
+        rc = nfs_utimes(context_from(context), path_chars, times);
+    }
     free(path_chars);
     return fail(rc);
 }
