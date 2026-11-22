@@ -129,12 +129,12 @@ internal class FileByteChannel(
         while (writeLength > 0) {
             val length = writeLength
             val offset = writeOffset
-            val bytes = writeBuffer.copyOf(length)
+            // The native side copies what it keeps, so the buffer is reused as is.
             val writtenBytes = try {
                 if (append) {
-                    Client.append(path, file, bytes)
+                    Client.append(path, file, writeBuffer, length)
                 } else {
-                    Client.pwrite(path, file, bytes, offset)
+                    Client.pwrite(path, file, writeBuffer, length, offset)
                 }
             } catch (e: ClientException) {
                 throw e.toFileSystemException(path.toString())
