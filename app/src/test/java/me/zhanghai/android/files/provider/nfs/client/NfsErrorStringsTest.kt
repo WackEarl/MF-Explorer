@@ -34,6 +34,10 @@ class NfsErrorStringsTest {
             "The NFS export was not found",
             english.getString(R.string.nfs_error_export_not_found)
         )
+        assertEquals(
+            "The NFS export was not found or is not shared with this device",
+            english.getString(R.string.nfs_error_export_refused)
+        )
 
         val germanConfig = Configuration(english.configuration)
         germanConfig.setLocale(Locale.GERMAN)
@@ -57,6 +61,10 @@ class NfsErrorStringsTest {
         assertEquals(
             "NFS-Export nicht gefunden",
             german.getString(R.string.nfs_error_export_not_found)
+        )
+        assertEquals(
+            "NFS-Export nicht gefunden oder für dieses Gerät nicht freigegeben",
+            german.getString(R.string.nfs_error_export_refused)
         )
     }
 }

@@ -6,6 +6,7 @@
 package me.zhanghai.android.files.storage
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +20,8 @@ import kotlinx.parcelize.Parcelize
 import me.zhanghai.android.files.R
 import me.zhanghai.android.files.databinding.EditNfsServerFragmentBinding
 import me.zhanghai.android.files.provider.nfs.client.Authority
+import me.zhanghai.android.files.provider.nfs.client.NfsErrorKind
+import me.zhanghai.android.files.provider.nfs.client.nfsErrorKindOf
 import me.zhanghai.android.files.util.ActionState
 import me.zhanghai.android.files.util.ParcelableArgs
 import me.zhanghai.android.files.util.args
@@ -26,12 +29,15 @@ import me.zhanghai.android.files.util.fadeToVisibilityUnsafe
 import me.zhanghai.android.files.util.finish
 import me.zhanghai.android.files.util.hideTextInputLayoutErrorOnTextChange
 import me.zhanghai.android.files.util.isReady
-import me.zhanghai.android.files.util.showToast
 import me.zhanghai.android.files.util.takeIfNotEmpty
 import me.zhanghai.android.files.util.viewModels
 import java.net.URI
 
 class EditNfsServerFragment : Fragment() {
+    companion object {
+        private const val TAG = "EditNfsServerFragment"
+    }
+
     private val args by args<Args>()
 
     private val viewModel by viewModels { { EditNfsServerViewModel() } }
@@ -170,11 +176,26 @@ class EditNfsServerFragment : Fragment() {
             }
             is ActionState.Error -> {
                 val throwable = state.throwable
-                throwable.printStackTrace()
-                showToast(throwable.toString())
+                Log.w(TAG, "Connecting to the NFS server failed", throwable)
+                showConnectError(throwable)
                 viewModel.finishConnecting()
             }
         }
+    }
+
+    /**
+     * Keeps the error at the field it is about until that field is edited. A toast was gone
+     * after three seconds, often before a slow attempt even ended.
+     */
+    private fun showConnectError(throwable: Throwable) {
+        val kind = nfsErrorKindOf(throwable)
+        val message = kind?.userMessage() ?: throwable.toString()
+        val (layout, edit) = when (nfsConnectErrorField(kind)) {
+            NfsConnectErrorField.EXPORT -> binding.exportLayout to binding.exportEdit
+            NfsConnectErrorField.HOST -> binding.hostLayout to binding.hostEdit
+        }
+        layout.error = message
+        edit.requestFocus()
     }
 
     private fun remove() {
@@ -253,3 +274,13 @@ class EditNfsServerFragment : Fragment() {
     @Parcelize
     class Args(val server: NfsServer? = null) : ParcelableArgs
 }
+
+internal enum class NfsConnectErrorField { HOST, EXPORT }
+
+/** Export and permission problems belong to the export field, everything else to the host. */
+internal fun nfsConnectErrorField(kind: NfsErrorKind?): NfsConnectErrorField =
+    if (kind != null && (kind.isExportProblem || kind == NfsErrorKind.ACCESS_DENIED)) {
+        NfsConnectErrorField.EXPORT
+    } else {
+        NfsConnectErrorField.HOST
+    }

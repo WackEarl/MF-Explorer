@@ -42,7 +42,20 @@ internal enum class NfsErrorKind(
         R.string.nfs_error_export_not_found,
         "The NFS export was not found",
         false
+    ),
+    /**
+     * MOUNT refused the export path. Linux mountd answers MNT3ERR_ACCES for a path that is not
+     * exported, also when it does not exist, so this is not a permission problem on a file.
+     */
+    EXPORT_REFUSED(
+        R.string.nfs_error_export_refused,
+        "The NFS export was not found or is not shared with this device",
+        false
     );
+
+    /** About the export path rather than the server address. */
+    val isExportProblem: Boolean
+        get() = this == EXPORT_NOT_FOUND || this == EXPORT_REFUSED;
 
     fun userMessage(): String =
         try {
@@ -57,8 +70,8 @@ internal fun nfsErrorKind(errno: Int, message: String?): NfsErrorKind? {
     when {
         text.contains("MNT3ERR_NOENT") -> return NfsErrorKind.EXPORT_NOT_FOUND
         text.contains("MNT3ERR_ACCES") ||
-            text.contains("MNT3ERR_PERM") ||
-            text.contains("NFS3ERR_ACCES") ||
+            text.contains("MNT3ERR_PERM") -> return NfsErrorKind.EXPORT_REFUSED
+        text.contains("NFS3ERR_ACCES") ||
             text.contains("NFS3ERR_PERM") ||
             text.contains("ACCESS denied") -> return NfsErrorKind.ACCESS_DENIED
         containsIgnoreCase(text, "timed out") ||
@@ -93,6 +106,20 @@ internal fun nfsErrorKind(errno: Int, message: String?): NfsErrorKind? {
         OsConstants.EACCES, OsConstants.EPERM -> NfsErrorKind.ACCESS_DENIED
         else -> null
     }
+}
+
+/** The NFS error behind [throwable], looking through its causes. */
+internal fun nfsErrorKindOf(throwable: Throwable): NfsErrorKind? {
+    var current: Throwable? = throwable
+    var depth = 0
+    while (current != null && depth < 8) {
+        if (current is ClientException) {
+            return nfsErrorKind(current.errno, current.message)
+        }
+        current = current.cause
+        depth++
+    }
+    return null
 }
 
 private fun containsIgnoreCase(text: String, token: String): Boolean =

@@ -106,21 +106,29 @@ class NfsErrorKindTest {
     }
 
     @Test
-    fun mapsAccessDeniedFromMountAndNfs3() {
+    fun mapsRefusedExportFromMount() {
+        // rc1 B6: Linux mountd answers a missing export path such as /mnt/cache/gibtsnicht
+        // with MNT3ERR_ACCES. That is about the export, not a file permission.
         assertEquals(
-            NfsErrorKind.ACCESS_DENIED,
+            NfsErrorKind.EXPORT_REFUSED,
             nfsErrorKind(
                 OsConstants.EACCES,
                 "mount_cb: RPC error: Mount failed with error MNT3ERR_ACCES(13) Permission denied(13)"
             )
         )
         assertEquals(
-            NfsErrorKind.ACCESS_DENIED,
+            NfsErrorKind.EXPORT_REFUSED,
             nfsErrorKind(
                 OsConstants.EPERM,
                 "mount_cb: RPC error: Mount failed with error MNT3ERR_PERM(1) Operation not permitted(1)"
             )
         )
+        assertTrue(NfsErrorKind.EXPORT_REFUSED.isExportProblem)
+        assertFalse(NfsErrorKind.EXPORT_REFUSED.isTransportFailure)
+    }
+
+    @Test
+    fun mapsAccessDeniedFromNfs3() {
         assertEquals(
             NfsErrorKind.ACCESS_DENIED,
             nfsErrorKind(
@@ -187,7 +195,10 @@ class NfsErrorKindTest {
         val exception = ClientException(OsConstants.EACCES, raw)
             .toFileSystemException("/export")
         assertTrue(exception is AccessDeniedException)
-        assertEquals("Access to the NFS server was denied", exception.reason)
+        assertEquals(
+            "The NFS export was not found or is not shared with this device",
+            exception.reason
+        )
         assertTrue(exception.cause is ClientException)
         assertEquals(raw, exception.cause!!.message)
     }
@@ -206,6 +217,16 @@ class NfsErrorKindTest {
         ).toFileSystemException("nfs://192.0.2.1/missing")
         assertTrue(export is NoSuchFileException)
         assertEquals("The NFS export was not found", export.reason)
+    }
+
+    @Test
+    fun kindIsFoundThroughTheFileSystemExceptionOfTheConnectForm() {
+        val raw = "mount_cb: RPC error: Mount failed with error MNT3ERR_ACCES(13) Permission denied(13)"
+        val wrapped = RuntimeException(
+            ClientException(OsConstants.EACCES, raw).toFileSystemException("/")
+        )
+        assertEquals(NfsErrorKind.EXPORT_REFUSED, nfsErrorKindOf(wrapped))
+        assertNull(nfsErrorKindOf(java.io.IOException("disk full")))
     }
 
     @Test

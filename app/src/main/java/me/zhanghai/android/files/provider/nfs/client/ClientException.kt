@@ -28,6 +28,7 @@ class ClientException(
             kind == NfsErrorKind.EXPORT_NOT_FOUND ->
                 NoSuchFileException(file, other, reason)
             kind == NfsErrorKind.ACCESS_DENIED ||
+                kind == NfsErrorKind.EXPORT_REFUSED ||
                 errno == OsConstants.EACCES ||
                 errno == OsConstants.EPERM ->
                 AccessDeniedException(file, other, reason)
