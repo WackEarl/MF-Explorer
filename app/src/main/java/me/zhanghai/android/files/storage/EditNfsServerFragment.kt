@@ -30,6 +30,7 @@ import me.zhanghai.android.files.util.finish
 import me.zhanghai.android.files.util.hideTextInputLayoutErrorOnTextChange
 import me.zhanghai.android.files.util.isReady
 import me.zhanghai.android.files.util.takeIfNotEmpty
+import me.zhanghai.android.files.util.toUserMessage
 import me.zhanghai.android.files.util.viewModels
 import java.net.URI
 
@@ -189,7 +190,7 @@ class EditNfsServerFragment : Fragment() {
      */
     private fun showConnectError(throwable: Throwable) {
         val kind = nfsErrorKindOf(throwable)
-        val message = kind?.userMessage() ?: throwable.toString()
+        val message = kind?.userMessage() ?: throwable.toUserMessage()
         val (layout, edit) = when (nfsConnectErrorField(kind)) {
             NfsConnectErrorField.EXPORT -> binding.exportLayout to binding.exportEdit
             NfsConnectErrorField.HOST -> binding.hostLayout to binding.hostEdit
