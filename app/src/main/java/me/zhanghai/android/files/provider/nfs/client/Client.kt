@@ -529,6 +529,11 @@ internal object Client {
             if (e.isTransportFailure() &&
                 incompleteFiles.deferDelete(path.authority, ByteString(path.remoteBytes))) {
                 Log.i(TAG, "Will delete incomplete $path once the server is reachable")
+                if (NfsNetworkMonitor.isNetworkAvailable) {
+                    // The network may be back already, and its event has passed. Without a
+                    // network the next onAvailable runs it.
+                    NfsNetworkMonitor.schedulePendingDeletes()
+                }
             }
             throw e
         }

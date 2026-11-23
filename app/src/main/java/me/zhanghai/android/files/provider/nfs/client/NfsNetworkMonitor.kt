@@ -11,6 +11,7 @@ import android.net.Network
 import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Drops idle NFS contexts when the default network is lost or replaced, so the next call mounts
@@ -120,13 +121,28 @@ internal object NfsNetworkMonitor {
             if (available) {
                 // Partial files of a copy that lost the connection go now, on the new network,
                 // not only with the next call on that server (rc2 finding B5a).
-                deleter.execute {
-                    try {
-                        Client.deletePendingNow()
-                    } catch (e: RuntimeException) {
-                        Log.e(TAG, "Running pending NFS deletes failed", e)
-                    }
-                }
+                schedulePendingDeletes()
+            }
+        }
+    }
+
+    private val pendingDeletesScheduled = AtomicBoolean()
+
+    /**
+     * Runs [Client.deletePendingNow] on its own worker. Also for a delete that was deferred
+     * after the network had already come back, which no network event would run any more.
+     * Requests while one is queued are merged.
+     */
+    fun schedulePendingDeletes() {
+        if (!pendingDeletesScheduled.compareAndSet(false, true)) {
+            return
+        }
+        deleter.execute {
+            pendingDeletesScheduled.set(false)
+            try {
+                Client.deletePendingNow()
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Running pending NFS deletes failed", e)
             }
         }
     }
