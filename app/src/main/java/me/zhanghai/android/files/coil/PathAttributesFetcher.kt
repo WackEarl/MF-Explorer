@@ -128,8 +128,26 @@ class PathAttributesFetcher(
                 } else {
                     path.newInputStream(*openOptions)
                 }
+                val source = inputStream.source().buffer()
+                if (thumbnailSize != null && mimeType == MimeType.IMAGE_JPEG) {
+                    val (width, height) = thumbnailSize
+                    val thumbnail = try {
+                        ExifThumbnail.decode(source, width, height, options.scale)
+                    } catch (t: Throwable) {
+                        source.close()
+                        throw t
+                    }
+                    if (thumbnail != null) {
+                        // Releases the NFS thumbnail read after only the header was read.
+                        source.close()
+                        return DrawableResult(
+                            thumbnail.toDrawable(options.context.resources), true,
+                            path.dataSource
+                        )
+                    }
+                }
                 return SourceResult(
-                    ImageSource(inputStream.source().buffer(), options.context),
+                    ImageSource(source, options.context),
                     if (mimeType != MimeType.GENERIC) mimeType.value else null, path.dataSource
                 )
             }
