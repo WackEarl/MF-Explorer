@@ -101,12 +101,17 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
         }
         // This will set up window flags.
         systemUiHelper.show()
-        adapter = ImageViewerAdapter(viewLifecycleOwner) { systemUiHelper.toggle() }.apply {
-            replace(paths)
+        val neighborPreloadGate = NeighborPreloadGate({ currentPathOrNull }) {
+            // 1 is the default for the old androidx.viewpager.widget.ViewPager. Posted, so the
+            // pager is not laid out again from inside a load callback.
+            binding.viewPager.post { binding.viewPager.offscreenPageLimit = 1 }
         }
+        adapter = ImageViewerAdapter(
+            viewLifecycleOwner, { systemUiHelper.toggle() }, neighborPreloadGate::onPageLoaded
+        ).apply { replace(paths) }
         binding.viewPager.apply {
-            // 1 is the default for the old androidx.viewpager.widget.ViewPager.
-            offscreenPageLimit = 1
+            // Only the current page until it has loaded, see NeighborPreloadGate.
+            offscreenPageLimit = ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT
             adapter = this@ImageViewerFragment.adapter
             // ViewPager saves its position and will restore it later.
             setCurrentItem(args.position, false)
@@ -212,6 +217,9 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
 
     private val currentPath: Path
         get() = paths[binding.viewPager.currentItem]
+
+    private val currentPathOrNull: Path?
+        get() = paths.getOrNull(binding.viewPager.currentItem)
 
     @Parcelize
     class Args(val intent: Intent, val position: Int) : ParcelableArgs

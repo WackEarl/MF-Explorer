@@ -33,7 +33,8 @@ import kotlin.math.max
 
 class ImageViewerAdapter(
     private val lifecycleOwner: LifecycleOwner,
-    private val listener: (View) -> Unit
+    private val listener: (View) -> Unit,
+    private val onPageLoaded: (Path) -> Unit
 ) : SimpleAdapter<Path, ImageViewerAdapter.ViewHolder>() {
     override val hasStableIds: Boolean
         get() = true
@@ -75,6 +76,7 @@ class ImageViewerAdapter(
             } catch (e: Exception) {
                 e.printStackTrace()
                 showError(binding, e)
+                onPageLoaded(path)
                 return@launch
             }
             loadImageWithInfo(binding, path, imageInfo)
@@ -93,8 +95,14 @@ class ImageViewerAdapter(
                     size(Size.ORIGINAL)
                     fadeIn(context.shortAnimTime)
                     listener(
-                        onSuccess = { _, _ -> binding.progress.fadeOutUnsafe() },
-                        onError = { _, result -> showError(binding, result.throwable) }
+                        onSuccess = { _, _ ->
+                            binding.progress.fadeOutUnsafe()
+                            onPageLoaded(path)
+                        },
+                        onError = { _, result ->
+                            showError(binding, result.throwable)
+                            onPageLoaded(path)
+                        }
                     )
                 }
             }
@@ -114,9 +122,14 @@ class ImageViewerAdapter(
                         binding.largeImage.fadeInUnsafe(true)
                     }
 
+                    override fun onImageLoaded() {
+                        onPageLoaded(path)
+                    }
+
                     override fun onImageLoadError(e: Exception) {
                         e.printStackTrace()
                         showError(binding, e)
+                        onPageLoaded(path)
                     }
                 })
                 setImageRestoringSavedState(ImageSource.uri(path.fileProviderUri))
