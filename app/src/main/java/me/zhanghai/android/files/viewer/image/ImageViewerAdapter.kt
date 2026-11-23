@@ -5,6 +5,7 @@
 
 package me.zhanghai.android.files.viewer.image
 
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
@@ -18,6 +19,7 @@ import coil.size.Size
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnImageEventListener
+import com.davemorrissey.labs.subscaleview.decoder.ImageRegionDecoder
 import java8.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.files.coil.fadeIn
 import me.zhanghai.android.files.databinding.ImageViewerItemBinding
-import me.zhanghai.android.files.file.fileProviderUri
 import me.zhanghai.android.files.ui.SimpleAdapter
 import me.zhanghai.android.files.util.fadeInUnsafe
 import me.zhanghai.android.files.util.fadeOutUnsafe
@@ -37,6 +38,7 @@ internal class ImageViewerAdapter(
     private val lifecycleOwner: LifecycleOwner,
     private val listener: (View) -> Unit,
     private val preloadGate: NeighborPreloadGate,
+    private val newLargeImageDecoder: (Path) -> ImageRegionDecoder = { PathImageRegionDecoder(it) },
     private val readImageInfo: suspend (Path) -> ImageInfo = {
         withContext(Dispatchers.IO) { it.loadImageInfo() }
     }
@@ -150,7 +152,10 @@ internal class ImageViewerAdapter(
                         preloadGate.onPageLoaded(path)
                     }
                 })
-                val imageSource = ImageSource.uri(path.fileProviderUri)
+                // Not our file provider's URI: see PathImageRegionDecoder. The view needs a URI,
+                // and the decoder ignores it.
+                setRegionDecoderFactory { newLargeImageDecoder(path) }
+                val imageSource = ImageSource.uri(LARGE_IMAGE_URI)
                 val previewSource = binding.largeImagePreview(path, imageInfo)
                 if (previewSource != null) {
                     // A preview needs the dimensions of the image.
@@ -206,6 +211,10 @@ internal class ImageViewerAdapter(
 
     class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root) {
         internal val loadJob = BindJob()
+    }
+
+    companion object {
+        private val LARGE_IMAGE_URI: Uri = Uri.parse("mfx-large-image:")
     }
 
 }

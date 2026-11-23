@@ -11,10 +11,12 @@ import androidx.activity.ComponentActivity
 import androidx.core.view.isVisible
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
+import java8.nio.file.attribute.FileTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import me.zhanghai.android.files.R
 import me.zhanghai.android.files.file.asMimeType
+import me.zhanghai.android.files.testing.TestJpegs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,12 +26,16 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.lang.reflect.Proxy
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Issues #53 and #51 on a real view holder. */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
 class ImageViewerAdapterTest {
     private val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
@@ -48,6 +54,16 @@ class ImageViewerAdapterTest {
     private val attributes = Proxy.newProxyInstance(
         BasicFileAttributes::class.java.classLoader, arrayOf(BasicFileAttributes::class.java)
     ) { _, method, _ -> throw UnsupportedOperationException(method.name) } as BasicFileAttributes
+
+    /** For the memory cache key of a placeholder. */
+    private val datedAttributes = Proxy.newProxyInstance(
+        BasicFileAttributes::class.java.classLoader, arrayOf(BasicFileAttributes::class.java)
+    ) { _, method, _ ->
+        when (method.name) {
+            "lastModifiedTime" -> FileTime.fromMillis(0)
+            else -> throw UnsupportedOperationException(method.name)
+        }
+    } as BasicFileAttributes
 
     private val first = path("1.jpg")
     private val second = path("2.jpg")
@@ -211,4 +227,46 @@ class ImageViewerAdapterTest {
         advance(showDelay * 4)
         assertFalse(holder.binding.progress.isVisible)
     }
+
+    /**
+     * A large image is decoded from its path. The view's default decoder would open our file
+     * provider's URI, which for a remote file is a proxy file descriptor that can hang the system.
+     */
+    @Test
+    fun aLargeImageIsDecodedFromItsPathNotAContentUri() {
+        val gate = NeighborPreloadGate(first)
+        val decoderPaths = mutableListOf<Path>()
+        val opened = CountDownLatch(1)
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate,
+            newLargeImageDecoder = { path ->
+                decoderPaths.add(path)
+                PathImageRegionDecoder(path) {
+                    opened.countDown()
+                    ByteArrayInputStream(TestJpegs.encode(TestJpegs.quadrants(96, 64)))
+                }
+            }
+        ) {
+            // 61 MP like a large camera JPEG: too large for a bitmap, so the large view.
+            ImageInfo(
+                datedAttributes, 9504, 6336, "image/jpeg".asMimeType(),
+                LargeImageOrientation.NORMAL
+            )
+        }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        idle()
+
+        assertTrue(holder.binding.largeImage.isVisible)
+        // The view initializes its decoder on a background executor. Its own decoder would
+        // have opened a content URI instead.
+        assertTrue(opened.await(10, TimeUnit.SECONDS))
+        assertEquals(1, decoderPaths.size)
+        assertTrue(decoderPaths.single() === first)
+        idle()
+        assertFalse(holder.binding.errorText.isVisible)
+    }
+
+
 }
