@@ -17,6 +17,7 @@ import me.zhanghai.android.files.filelist.FileSortOptions.Order
 import me.zhanghai.android.files.provider.archive.archiveRefresh
 import me.zhanghai.android.files.provider.archive.isArchivePath
 import me.zhanghai.android.files.util.CloseableLiveData
+import me.zhanghai.android.files.util.Failure
 import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
 import me.zhanghai.android.files.util.valueCompat
@@ -512,6 +513,9 @@ class FileListViewModel : ViewModel() {
                     liveData = existing
                     addSource(existing) { value = it }
                 }
+                if (!isCachedListingReusable(existing.value)) {
+                    reload()
+                }
                 return
             }
             existing?.close()
@@ -549,3 +553,10 @@ data class FileTabs(
     val paths: List<Path>,
     val selectedIndex: Int
 )
+
+/**
+ * Whether a tab shows its cached listing again as it is when its path is shown again. A failed
+ * listing is not: reopening the folder must list it again, otherwise an error such as "The NFS
+ * server is unreachable" stays after the network is back, until an app restart (rc3 finding B3).
+ */
+internal fun isCachedListingReusable(stateful: Stateful<*>?): Boolean = stateful !is Failure
