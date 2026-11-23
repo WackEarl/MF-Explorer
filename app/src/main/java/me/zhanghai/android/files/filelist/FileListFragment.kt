@@ -658,6 +658,10 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     }
                     tabLayout.addTab(tab, index == tabs.selectedIndex)
                 }
+                // The rebuilt bar starts scrolled to the start; bring the selected tab, e.g. the
+                // one "+" just opened, into view once the new tabs are laid out.
+                val selectedIndex = tabs.selectedIndex
+                tabLayout.post { tabLayout.scrollTabIntoView(selectedIndex) }
             } else {
                 val showClose = tabs.ids.size > 1
                 for (index in tabs.ids.indices) {
