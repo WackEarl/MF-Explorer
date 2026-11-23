@@ -7,17 +7,9 @@
 
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
-
-    <ProgressBar
-        android:id="@+id/progress"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:indeterminate="true"
-        android:visibility="gone"
-        style="@style/Widget.AppCompat.ProgressBar" />
 
     <TextView
         android:id="@+id/errorText"
@@ -39,4 +31,21 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
+
+    <!--
+      ~ Above the image views, so it shows over the thumbnail placeholder. Shown after a short
+      ~ delay, so an image that loads at once does not flash it.
+      -->
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0.8"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:indicatorColor="@android:color/white"
+        app:indicatorSize="36dp"
+        app:showDelay="@integer/image_viewer_progress_show_delay"
+        app:trackThickness="3dp" />
 </FrameLayout>

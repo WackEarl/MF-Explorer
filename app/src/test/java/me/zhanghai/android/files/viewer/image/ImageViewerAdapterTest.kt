@@ -13,6 +13,7 @@ import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import me.zhanghai.android.files.R
 import me.zhanghai.android.files.file.asMimeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,6 +26,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.IOException
 import java.lang.reflect.Proxy
+import java.util.concurrent.TimeUnit
 
 /** Issues #53 and #51 on a real view holder. */
 @RunWith(RobolectricTestRunner::class)
@@ -54,6 +56,22 @@ class ImageViewerAdapterTest {
 
     private fun holderFor(adapter: ImageViewerAdapter): ImageViewerAdapter.ViewHolder =
         adapter.onCreateViewHolder(FrameLayout(activity), 0)
+
+    /** A holder whose views are on screen, so delayed view callbacks run. */
+    private fun attachedHolderFor(adapter: ImageViewerAdapter): ImageViewerAdapter.ViewHolder {
+        val parent = FrameLayout(activity)
+        activity.setContentView(parent)
+        return adapter.onCreateViewHolder(parent, 0).also { parent.addView(it.itemView) }
+    }
+
+    private fun advance(millis: Long) =
+        shadowOf(Looper.getMainLooper()).idleFor(millis, TimeUnit.MILLISECONDS)
+
+    private val showDelay: Long
+        get() = activity.resources.getInteger(R.integer.image_viewer_progress_show_delay).toLong()
+
+    private fun imageInfo() =
+        ImageInfo(attributes, 100, 100, "image/jpeg".asMimeType(), LargeImageOrientation.NORMAL)
 
     @Test
     fun aRebindDuringALoadNeverShowsTheOldImage() {
@@ -103,5 +121,94 @@ class ImageViewerAdapterTest {
         assertTrue(holder.binding.errorText.text.contains("read cancelled"))
         // The neighbor was let through after the current page failed, and failed the same way.
         assertTrue(neighbor.binding.errorText.text.contains("read cancelled"))
+    }
+
+    /** Issue #58: a loading indicator over the placeholder, without flashing. */
+    @Test
+    fun theLoadingIndicatorAppearsAfterTheDelayAndIsDrawnOverTheImage() {
+        val gate = NeighborPreloadGate(first)
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        advance(showDelay / 2)
+        assertFalse(holder.binding.progress.isVisible)
+        advance(showDelay)
+
+        assertTrue(holder.binding.progress.isVisible)
+        // Last in the frame, so the thumbnail placeholder does not cover it.
+        val root = holder.binding.root
+        assertEquals(root.childCount - 1, root.indexOfChild(holder.binding.progress))
+    }
+
+    @Test
+    fun aLoadThatEndsWithinTheDelayNeverShowsTheIndicator() {
+        val gate = NeighborPreloadGate(first)
+        val info = CompletableDeferred<ImageInfo>()
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            info.await()
+            throw IOException("gone")
+        }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+        var everShown = false
+        holder.binding.progress.viewTreeObserver.addOnPreDrawListener {
+            everShown = everShown || holder.binding.progress.isVisible
+            true
+        }
+
+        adapter.onBindViewHolder(holder, 0)
+        advance(showDelay / 3)
+        info.complete(imageInfo())
+        advance(showDelay * 4)
+
+        assertTrue(holder.binding.errorText.isVisible)
+        assertFalse(everShown)
+        assertFalse(holder.binding.progress.isVisible)
+    }
+
+    @Test
+    fun anErrorHidesTheIndicator() {
+        val gate = NeighborPreloadGate(first)
+        val info = CompletableDeferred<ImageInfo>()
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            info.await()
+            throw IOException("offline")
+        }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        advance(showDelay * 2)
+        assertTrue(holder.binding.progress.isVisible)
+        info.complete(imageInfo())
+        advance(1000)
+
+        assertTrue(holder.binding.errorText.isVisible)
+        assertFalse(holder.binding.progress.isVisible)
+    }
+
+    @Test
+    fun recyclingHidesTheIndicatorAndCancelsAPendingOne() {
+        val gate = NeighborPreloadGate(first)
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        val holder = attachedHolderFor(adapter)
+        adapter.onBindViewHolder(holder, 0)
+        advance(showDelay * 2)
+        assertTrue(holder.binding.progress.isVisible)
+
+        adapter.onViewRecycled(holder)
+        advance(1000)
+        assertFalse(holder.binding.progress.isVisible)
+
+        // Swiped away before the delay ran out.
+        gate.onPageSelected(second)
+        adapter.onBindViewHolder(holder, 1)
+        advance(showDelay / 2)
+        adapter.onViewRecycled(holder)
+        advance(showDelay * 4)
+        assertFalse(holder.binding.progress.isVisible)
     }
 }
