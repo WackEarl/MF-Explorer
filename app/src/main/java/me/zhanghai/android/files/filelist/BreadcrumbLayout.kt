@@ -193,6 +193,7 @@ class BreadcrumbLayout : HorizontalScrollView {
             binding.root.setOnClickListener {
                 if (data.selectedIndex == index) {
                     scrollToSelectedItem()
+                    listener.onCurrentItemClicked(path)
                 } else {
                     listener.navigateTo(path)
                 }
@@ -215,6 +216,7 @@ class BreadcrumbLayout : HorizontalScrollView {
 
     interface Listener {
         fun navigateTo(path: Path)
+        fun onCurrentItemClicked(path: Path) {}
         fun copyPath(path: Path)
         fun openInNewTab(path: Path)
     }

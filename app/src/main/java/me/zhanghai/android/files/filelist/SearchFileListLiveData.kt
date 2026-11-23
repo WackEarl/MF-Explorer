@@ -48,6 +48,7 @@ class SearchFileListLiveData(
                 }
                 postValue(Success(fileList.toList()))
             } catch (e: Exception) {
+                e.printStackTrace()
                 postValue(Failure(value?.value ?: fileList.toList(), e))
             }
         }
