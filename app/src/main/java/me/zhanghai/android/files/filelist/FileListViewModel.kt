@@ -560,6 +560,10 @@ data class FileTabs(
     val selectedIndex: Int
 )
 
+/** Tapping the current breadcrumb segment retries a folder whose listing failed. */
+internal fun shouldReloadOnCurrentBreadcrumbClick(stateful: Stateful<*>?): Boolean =
+    stateful is Failure
+
 /**
  * Whether a tab shows its cached listing again as it is when its path is shown again. A failed
  * listing is not: reopening the folder must list it again, otherwise an error such as "The NFS

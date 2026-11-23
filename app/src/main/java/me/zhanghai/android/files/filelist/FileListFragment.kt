@@ -174,6 +174,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     private lateinit var binding: Binding
 
+    private var pendingRevealPath: Path? = null
+
     private lateinit var navigationFragment: NavigationFragment
 
     private lateinit var menuBinding: MenuBinding
@@ -899,7 +901,6 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         val throwable = (stateful as? Failure)?.throwable
         if (throwable != null) {
-            throwable.printStackTrace()
             val error = throwable.toUserMessage()
             if (hasFiles) {
                 showToast(error)
@@ -916,7 +917,24 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         if (stateful is Success) {
             viewModel.pendingState?.let { layoutManager.onRestoreInstanceState(it) }
+            revealPendingPath()
         }
+    }
+
+    // Brings a folder created with "New folder" into view once the listing contains it, instead
+    // of leaving it above the visible area.
+    private fun revealPendingPath() {
+        val path = pendingRevealPath ?: return
+        if (path.parent != currentPath || viewModel.searchState.isSearching) {
+            pendingRevealPath = null
+            return
+        }
+        val position = adapter.positionOf(path)
+        if (position == RecyclerView.NO_POSITION) {
+            return
+        }
+        pendingRevealPath = null
+        binding.recyclerView.scrollToPosition(position)
     }
 
     private fun getSubtitle(files: List<FileItem>): String {
@@ -1082,6 +1100,13 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         closeSearch()
         val state = layoutManager.onSaveInstanceState()
         viewModel.navigateTo(state!!, path)
+    }
+
+    override fun onCurrentItemClicked(path: Path) {
+        // Tapping the current breadcrumb retries a folder that failed to load.
+        if (shouldReloadOnCurrentBreadcrumbClick(viewModel.fileListStateful)) {
+            refresh()
+        }
     }
 
     override fun copyPath(path: Path) {
@@ -1764,6 +1789,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     override fun createDirectory(name: String) {
         val path = currentPath.resolve(name)
+        pendingRevealPath = path
         FileJobService.create(path, true, requireContext())
     }
 

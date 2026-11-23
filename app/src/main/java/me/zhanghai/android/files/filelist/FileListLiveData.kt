@@ -55,6 +55,8 @@ class FileListLiveData(private val path: Path) : CloseableLiveData<Stateful<List
                     Success(fileList as List<FileItem>)
                 }
             } catch (e: Exception) {
+                // Log once where the listing fails, not each time a cached failure is shown.
+                e.printStackTrace()
                 Failure(valueCompat.value, e)
             }
             postValue(value)
