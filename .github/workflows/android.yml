@@ -19,6 +19,19 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '21'
+    # Caches the wrapper and dependencies; Maven Central sometimes answers 429 (#65). Only
+    # runs on master save the cache, other branches and pull requests read it.
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      with:
+        cache-provider: basic
+    # Robolectric downloads its android-all jars while the tests run, outside Gradle.
+    - name: Cache Robolectric jars
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/repository/org/robolectric
+        key: robolectric-${{ hashFiles('app/build.gradle') }}
+        restore-keys: robolectric-
     - name: Run host NFS pipeline tests
       run: ./gradlew :app:testPipeDepth
     - name: Run unit tests

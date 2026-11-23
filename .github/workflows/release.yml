@@ -30,6 +30,13 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '21'
+    # Reads the Android CI cache of master (#65) but never writes one, so a tag build cannot
+    # leave anything behind for later builds.
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      with:
+        cache-provider: basic
+        cache-read-only: true
     - name: Check that the tag matches versionName
       run: |
         VERSION=$(sed -n "s/^ *versionName '\(.*\)'/\1/p" app/build.gradle)
