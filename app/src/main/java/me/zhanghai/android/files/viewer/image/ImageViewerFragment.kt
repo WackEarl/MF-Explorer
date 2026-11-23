@@ -57,6 +57,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
 
     private lateinit var adapter: ImageViewerAdapter
 
+    private lateinit var neighborPreloadGate: NeighborPreloadGate
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -101,23 +103,21 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
         }
         // This will set up window flags.
         systemUiHelper.show()
-        val neighborPreloadGate = NeighborPreloadGate({ currentPathOrNull }) {
-            // 1 is the default for the old androidx.viewpager.widget.ViewPager. Posted, so the
-            // pager is not laid out again from inside a load callback.
-            binding.viewPager.post { binding.viewPager.offscreenPageLimit = 1 }
-        }
+        neighborPreloadGate = NeighborPreloadGate(paths.getOrNull(args.position))
         adapter = ImageViewerAdapter(
-            viewLifecycleOwner, { systemUiHelper.toggle() }, neighborPreloadGate::onPageLoaded
+            viewLifecycleOwner, { systemUiHelper.toggle() }, neighborPreloadGate
         ).apply { replace(paths) }
         binding.viewPager.apply {
-            // Only the current page until it has loaded, see NeighborPreloadGate.
-            offscreenPageLimit = ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT
+            // Holders can be prepared ahead; the gate suspends their loads until the current
+            // image has loaded. This also covers RecyclerView's own prefetch.
+            offscreenPageLimit = 1
             adapter = this@ImageViewerFragment.adapter
             // ViewPager saves its position and will restore it later.
             setCurrentItem(args.position, false)
             setPageTransformer(DepthPageTransformer)
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
+                    neighborPreloadGate.onPageSelected(paths.getOrNull(position))
                     updateTitle()
                 }
             })
@@ -133,6 +133,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
             return
         }
 
+        // The pager may have restored another page than the one it was opened with.
+        neighborPreloadGate.onPageSelected(currentPath)
         updateTitle()
     }
 
@@ -188,6 +190,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
         if (binding.viewPager.currentItem > paths.lastIndex) {
             binding.viewPager.currentItem = paths.lastIndex
         }
+        // Another image now sits at the current position without a page change.
+        neighborPreloadGate.onPageSelected(currentPath)
         updateTitle()
         // Work around blank screen due to ViewPager2.PageTransformer not being called (and thus the
         // next item keeps its 0 alpha) when we have offscreenPageLimit = 1.
@@ -218,8 +222,6 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     private val currentPath: Path
         get() = paths[binding.viewPager.currentItem]
 
-    private val currentPathOrNull: Path?
-        get() = paths.getOrNull(binding.viewPager.currentItem)
 
     @Parcelize
     class Args(val intent: Intent, val position: Int) : ParcelableArgs

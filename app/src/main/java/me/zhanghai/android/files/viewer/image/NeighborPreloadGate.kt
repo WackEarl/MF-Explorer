@@ -6,25 +6,34 @@
 package me.zhanghai.android.files.viewer.image
 
 import java8.nio.file.Path
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 
 /**
- * Lets the viewer preload neighbor pages only once the page it opened with has loaded or
- * failed. On NFS every page reads its whole file on the same mount, so preloading both
- * neighbors at once made the image the user looks at load up to three times slower.
+ * Gates the loads themselves, not only ViewPager's offscreenPageLimit: RecyclerView may bind
+ * and prefetch neighbor holders even with the default limit. The selected image loads first.
  */
-internal class NeighborPreloadGate(
-    private val currentPath: () -> Path?,
-    private val onOpen: () -> Unit
-) {
-    var isOpen = false
-        private set
+internal class NeighborPreloadGate(initialPath: Path?) {
+    private data class State(val current: Path?, val loaded: Boolean)
 
-    /** Called when the page of [path] has finished loading, successfully or not. */
+    private val state = MutableStateFlow(State(initialPath, false))
+    private val loadedPaths = mutableSetOf<Path>()
+
+    /** Called on the main thread when the selected page changes. */
+    fun onPageSelected(path: Path?) {
+        state.value = State(path, path in loadedPaths)
+    }
+
+    /** Called on the main thread when a page loaded, successfully or not. */
     fun onPageLoaded(path: Path) {
-        if (isOpen || path != currentPath()) {
-            return
+        loadedPaths.add(path)
+        if (state.value.current == path) {
+            state.value = State(path, true)
         }
-        isOpen = true
-        onOpen()
+    }
+
+    /** Suspends neighbor loads without occupying an IO thread or opening the file. */
+    suspend fun awaitLoad(path: Path) {
+        state.first { it.current == path || it.loaded }
     }
 }

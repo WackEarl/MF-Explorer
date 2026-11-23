@@ -32,10 +32,10 @@ import me.zhanghai.android.files.util.layoutInflater
 import me.zhanghai.android.files.util.shortAnimTime
 import kotlin.math.max
 
-class ImageViewerAdapter(
+internal class ImageViewerAdapter(
     private val lifecycleOwner: LifecycleOwner,
     private val listener: (View) -> Unit,
-    private val onPageLoaded: (Path) -> Unit
+    private val preloadGate: NeighborPreloadGate
 ) : SimpleAdapter<Path, ImageViewerAdapter.ViewHolder>() {
     override val hasStableIds: Boolean
         get() = true
@@ -59,16 +59,22 @@ class ImageViewerAdapter(
         holder.loadJob.cancel()
         val binding = holder.binding
         binding.image.dispose()
+        binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
     }
 
     private fun loadImage(holder: ViewHolder, path: Path) {
         val binding = holder.binding
+        holder.loadJob.cancel()
+        binding.image.dispose()
+        binding.largeImage.setOnImageEventListener(null)
+        binding.largeImage.recycle()
         binding.progress.fadeInUnsafe(true)
         binding.errorText.fadeOutUnsafe()
         binding.image.isVisible = false
         binding.largeImage.isVisible = false
         holder.loadJob.launch(lifecycleOwner.lifecycleScope) {
+            preloadGate.awaitLoad(path)
             val imageInfo = try {
                 withContext(Dispatchers.IO) { path.loadImageInfo() }
             } catch (e: CancellationException) {
@@ -77,7 +83,7 @@ class ImageViewerAdapter(
             } catch (e: Exception) {
                 e.printStackTrace()
                 showError(binding, e)
-                onPageLoaded(path)
+                preloadGate.onPageLoaded(path)
                 return@launch
             }
             loadImageWithInfo(binding, path, imageInfo)
@@ -101,11 +107,11 @@ class ImageViewerAdapter(
                     listener(
                         onSuccess = { _, _ ->
                             binding.progress.fadeOutUnsafe()
-                            onPageLoaded(path)
+                            preloadGate.onPageLoaded(path)
                         },
                         onError = { _, result ->
                             showError(binding, result.throwable)
-                            onPageLoaded(path)
+                            preloadGate.onPageLoaded(path)
                         }
                     )
                 }
@@ -128,13 +134,13 @@ class ImageViewerAdapter(
 
                     override fun onImageLoaded() {
                         binding.progress.fadeOutUnsafe()
-                        onPageLoaded(path)
+                        preloadGate.onPageLoaded(path)
                     }
 
                     override fun onImageLoadError(e: Exception) {
                         e.printStackTrace()
                         showError(binding, e)
-                        onPageLoaded(path)
+                        preloadGate.onPageLoaded(path)
                     }
                 })
                 val imageSource = ImageSource.uri(path.fileProviderUri)

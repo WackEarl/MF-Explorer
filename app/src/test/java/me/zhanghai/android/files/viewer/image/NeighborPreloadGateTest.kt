@@ -6,13 +6,14 @@
 package me.zhanghai.android.files.viewer.image
 
 import java8.nio.file.Path
-import org.junit.Assert.assertEquals
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Proxy
 
-/** Issue #51: neighbors are preloaded only after the current page has loaded. */
 class NeighborPreloadGateTest {
     private fun path(name: String): Path =
         Proxy.newProxyInstance(Path::class.java.classLoader, arrayOf(Path::class.java)) {
@@ -27,42 +28,61 @@ class NeighborPreloadGateTest {
 
     private val previous = path("1.jpg")
     private val current = path("2.jpg")
-    private var currentPath: Path? = current
-    private var opened = 0
-    private val gate = NeighborPreloadGate({ currentPath }) { opened++ }
+    private val next = path("3.jpg")
 
     @Test
-    fun aNeighborLoadingFirstKeepsTheGateShut() {
-        gate.onPageLoaded(previous)
-
-        assertFalse(gate.isOpen)
-        assertEquals(0, opened)
+    fun preparedNeighborsWaitWithoutOpeningAFile() = runBlocking {
+        val gate = NeighborPreloadGate(current)
+        var neighborStarted = false
+        val neighbor = launch { gate.awaitLoad(previous); neighborStarted = true }
+        yield()
+        assertFalse(neighborStarted)
+        gate.awaitLoad(current)
+        gate.onPageLoaded(next) // An old completion cannot unblock the selected image.
+        yield()
+        assertFalse(neighborStarted)
+        gate.onPageLoaded(current)
+        neighbor.join()
+        assertTrue(neighborStarted)
     }
 
     @Test
-    fun theCurrentPageOpensTheGateOnce() {
-        gate.onPageLoaded(current)
-        gate.onPageLoaded(current)
-        gate.onPageLoaded(previous)
-
-        assertTrue(gate.isOpen)
-        assertEquals(1, opened)
+    fun swipingToAPreparedPageUnblocksItImmediately() = runBlocking {
+        val gate = NeighborPreloadGate(current)
+        var started = false
+        val waiting = launch { gate.awaitLoad(previous); started = true }
+        yield()
+        assertFalse(started)
+        gate.onPageSelected(previous)
+        waiting.join()
+        assertTrue(started)
     }
 
     @Test
-    fun afterASwipeTheNewCurrentPageOpensIt() {
+    fun aNewUnloadedSelectionClosesTheGateAgain() = runBlocking {
+        val gate = NeighborPreloadGate(current)
+        gate.onPageLoaded(current)
+        gate.onPageSelected(previous)
+        var neighborStarted = false
+        val neighbor = launch { gate.awaitLoad(next); neighborStarted = true }
+        yield()
+        assertFalse(neighborStarted)
         gate.onPageLoaded(previous)
-        currentPath = previous
-        gate.onPageLoaded(previous)
-
-        assertEquals(1, opened)
+        neighbor.join()
+        assertTrue(neighborStarted)
     }
 
     @Test
-    fun noCurrentPageKeepsTheGateShut() {
-        currentPath = null
+    fun recyclingCancelsASuspendedNeighbor() = runBlocking {
+        val gate = NeighborPreloadGate(current)
+        val binding = BindJob()
+        var started = false
+        val neighbor = binding.launch(this) { gate.awaitLoad(next); started = true }
+        yield()
+        binding.cancel()
         gate.onPageLoaded(current)
-
-        assertEquals(0, opened)
+        neighbor.join()
+        assertTrue(neighbor.isCancelled)
+        assertFalse(started)
     }
 }
