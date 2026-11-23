@@ -21,8 +21,9 @@ class SaveStateSubsamplingScaleImageView : SubsamplingScaleImageView {
 
     constructor(context: Context, attr: AttributeSet?) : super(context, attr)
 
-    fun setImageRestoringSavedState(imageSource: ImageSource) {
-        setImage(imageSource, pendingState)
+    /** [previewSource] needs the dimensions of [imageSource] to be set. */
+    fun setImageRestoringSavedState(imageSource: ImageSource, previewSource: ImageSource? = null) {
+        setImage(imageSource, previewSource, pendingState)
         pendingState = null
     }
 

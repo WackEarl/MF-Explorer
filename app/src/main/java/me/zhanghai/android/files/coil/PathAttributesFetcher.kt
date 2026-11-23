@@ -10,6 +10,7 @@ import android.content.pm.ApplicationInfo
 import android.os.ParcelFileDescriptor
 import androidx.core.graphics.drawable.toDrawable
 import coil.ImageLoader
+import coil.decode.DataSource
 import coil.decode.ImageSource
 import coil.fetch.DrawableResult
 import coil.fetch.FetchResult
@@ -50,16 +51,52 @@ import me.zhanghai.android.files.util.runWithCancellationSignal
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
 import me.zhanghai.android.files.util.withMediaMetadataRetriever
+import okio.BufferedSource
 import okio.buffer
 import okio.source
 import java.io.Closeable
 import java.io.IOException
 
 class PathAttributesKeyer : Keyer<Pair<Path, BasicFileAttributes>> {
-    override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String {
-        val (path, attributes) = data
-        return "$path:${attributes.lastModifiedInstant.toEpochMilli()}"
+    override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String =
+        key(data.first, data.second)
+
+    companion object {
+        /** Also the memory cache key of a request without transformations or parameters. */
+        fun key(path: Path, attributes: BasicFileAttributes): String =
+            "$path:${attributes.lastModifiedInstant.toEpochMilli()}"
     }
+}
+
+/**
+ * The result for an image read from [source]: the embedded EXIF thumbnail of a JPEG for a
+ * thumbnail request, otherwise [source] for Coil to decode. Closes [source] unless it is handed
+ * on, so the NFS thumbnail read ends as soon as only the header was needed.
+ */
+internal fun imageResult(
+    source: BufferedSource,
+    mimeType: MimeType,
+    thumbnailSize: Pair<Int, Int>?,
+    options: Options,
+    dataSource: DataSource
+): FetchResult {
+    if (thumbnailSize != null && mimeType == MimeType.IMAGE_JPEG) {
+        val (width, height) = thumbnailSize
+        val thumbnail = try {
+            ExifThumbnail.decode(source, width, height, options.scale)
+        } catch (t: Throwable) {
+            source.close()
+            throw t
+        }
+        if (thumbnail != null) {
+            source.close()
+            return DrawableResult(thumbnail.toDrawable(options.context.resources), true, dataSource)
+        }
+    }
+    return SourceResult(
+        ImageSource(source, options.context),
+        if (mimeType != MimeType.GENERIC) mimeType.value else null, dataSource
+    )
 }
 
 class PathAttributesFetcher(
@@ -124,9 +161,9 @@ class PathAttributesFetcher(
                 } else {
                     path.newInputStream(*openOptions)
                 }
-                return SourceResult(
-                    ImageSource(inputStream.source().buffer(), options.context),
-                    if (mimeType != MimeType.GENERIC) mimeType.value else null, path.dataSource
+                return imageResult(
+                    inputStream.source().buffer(), mimeType, thumbnailSize, options,
+                    path.dataSource
                 )
             }
             mimeType.isMedia && path.isMediaMetadataRetrieverCompatible -> {

@@ -18,15 +18,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.doOnPreDraw
 import androidx.fragment.app.Fragment
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
+import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
 import dev.chrisbanes.insetter.applySystemWindowInsetsToPadding
 import java8.nio.file.Path
+import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
 import me.zhanghai.android.files.R
 import me.zhanghai.android.files.databinding.ImageViewerFragmentBinding
 import me.zhanghai.android.files.file.fileProviderUri
-import me.zhanghai.android.files.provider.common.delete
 import me.zhanghai.android.files.ui.DepthPageTransformer
 import me.zhanghai.android.files.util.ParcelableArgs
 import me.zhanghai.android.files.util.ParcelableListParceler
@@ -43,7 +44,6 @@ import me.zhanghai.android.files.util.showToast
 import me.zhanghai.android.files.util.startActivitySafe
 import me.zhanghai.android.files.util.withChooser
 import me.zhanghai.android.systemuihelper.SystemUiHelper
-import java.io.IOException
 
 class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     private val args by args<Args>()
@@ -56,6 +56,10 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     private lateinit var systemUiHelper: SystemUiHelper
 
     private lateinit var adapter: ImageViewerAdapter
+
+    private lateinit var neighborPreloadGate: NeighborPreloadGate
+
+    private val deletingPaths = mutableSetOf<Path>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,11 +105,13 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
         }
         // This will set up window flags.
         systemUiHelper.show()
-        adapter = ImageViewerAdapter(viewLifecycleOwner) { systemUiHelper.toggle() }.apply {
-            replace(paths)
-        }
+        neighborPreloadGate = NeighborPreloadGate(paths.getOrNull(args.position))
+        adapter = ImageViewerAdapter(
+            viewLifecycleOwner, { systemUiHelper.toggle() }, neighborPreloadGate
+        ).apply { replace(paths) }
         binding.viewPager.apply {
-            // 1 is the default for the old androidx.viewpager.widget.ViewPager.
+            // Holders can be prepared ahead; the gate suspends their loads until the current
+            // image has loaded. This also covers RecyclerView's own prefetch.
             offscreenPageLimit = 1
             adapter = this@ImageViewerFragment.adapter
             // ViewPager saves its position and will restore it later.
@@ -113,6 +119,7 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
             setPageTransformer(DepthPageTransformer)
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
+                    neighborPreloadGate.onPageSelected(paths.getOrNull(position))
                     updateTitle()
                 }
             })
@@ -128,6 +135,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
             return
         }
 
+        // The pager may have restored another page than the one it was opened with.
+        neighborPreloadGate.onPageSelected(currentPath)
         updateTitle()
     }
 
@@ -161,13 +170,26 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     }
 
     override fun delete(path: Path) {
-        try {
-            path.delete(false)
-        } catch (e: IOException) {
-            e.printStackTrace()
-            showToast(e.toString())
+        // A second confirmation while the first delete still runs, or after it, would delete
+        // twice and show an error for an image that is already gone.
+        if (path !in paths || !deletingPaths.add(path)) {
             return
         }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val errorMessage = try {
+                deleteImage(path)
+            } finally {
+                deletingPaths.remove(path)
+            }
+            if (errorMessage != null) {
+                showToast(errorMessage)
+                return@launch
+            }
+            onDeleted(path)
+        }
+    }
+
+    private fun onDeleted(path: Path) {
         paths.removeAll(listOf(path))
         if (paths.isEmpty()) {
             finish()
@@ -179,6 +201,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
         if (binding.viewPager.currentItem > paths.lastIndex) {
             binding.viewPager.currentItem = paths.lastIndex
         }
+        // Another image now sits at the current position without a page change.
+        neighborPreloadGate.onPageSelected(currentPath)
         updateTitle()
         // Work around blank screen due to ViewPager2.PageTransformer not being called (and thus the
         // next item keeps its 0 alpha) when we have offscreenPageLimit = 1.

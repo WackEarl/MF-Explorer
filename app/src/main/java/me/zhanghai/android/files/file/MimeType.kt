@@ -56,6 +56,7 @@ value class MimeType(val value: String) : Parcelable {
         val DIRECTORY = DocumentsContract.Document.MIME_TYPE_DIR.asMimeType()
         val IMAGE_ANY = "image/*".asMimeType()
         val IMAGE_GIF = "image/gif".asMimeType()
+        val IMAGE_JPEG = "image/jpeg".asMimeType()
         val IMAGE_SVG_XML = "image/svg+xml".asMimeType()
         val PDF = "application/pdf".asMimeType()
         val TEXT_PLAIN = "text/plain".asMimeType()

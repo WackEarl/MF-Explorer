@@ -5,7 +5,6 @@
 
 package me.zhanghai.android.files.viewer.image
 
-import android.graphics.BitmapFactory
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
@@ -13,25 +12,20 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
+import coil.imageLoader
 import coil.load
 import coil.size.Size
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnImageEventListener
 import java8.nio.file.Path
-import java8.nio.file.attribute.BasicFileAttributes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.files.coil.fadeIn
 import me.zhanghai.android.files.databinding.ImageViewerItemBinding
-import me.zhanghai.android.files.file.MimeType
-import me.zhanghai.android.files.file.asMimeType
-import me.zhanghai.android.files.file.asMimeTypeOrNull
 import me.zhanghai.android.files.file.fileProviderUri
-import me.zhanghai.android.files.provider.common.AndroidFileTypeDetector
-import me.zhanghai.android.files.provider.common.newInputStream
-import me.zhanghai.android.files.provider.common.readAttributes
 import me.zhanghai.android.files.ui.SimpleAdapter
 import me.zhanghai.android.files.util.fadeInUnsafe
 import me.zhanghai.android.files.util.fadeOutUnsafe
@@ -39,9 +33,13 @@ import me.zhanghai.android.files.util.layoutInflater
 import me.zhanghai.android.files.util.shortAnimTime
 import kotlin.math.max
 
-class ImageViewerAdapter(
+internal class ImageViewerAdapter(
     private val lifecycleOwner: LifecycleOwner,
-    private val listener: (View) -> Unit
+    private val listener: (View) -> Unit,
+    private val preloadGate: NeighborPreloadGate,
+    private val readImageInfo: suspend (Path) -> ImageInfo = {
+        withContext(Dispatchers.IO) { it.loadImageInfo() }
+    }
 ) : SimpleAdapter<Path, ImageViewerAdapter.ViewHolder>() {
     override val hasStableIds: Boolean
         get() = true
@@ -56,53 +54,46 @@ class ImageViewerAdapter(
         val binding = holder.binding
         binding.image.setOnPhotoTapListener { view, _, _ -> listener(view) }
         binding.largeImage.setOnClickListener(listener)
-        loadImage(binding, path)
+        loadImage(holder, path)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
 
+        holder.loadJob.cancel()
         val binding = holder.binding
         binding.image.dispose()
+        binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
     }
 
-    private fun loadImage(binding: ImageViewerItemBinding, path: Path) {
+    private fun loadImage(holder: ViewHolder, path: Path) {
+        val binding = holder.binding
+        binding.image.dispose()
+        binding.largeImage.setOnImageEventListener(null)
+        binding.largeImage.recycle()
         binding.progress.fadeInUnsafe(true)
         binding.errorText.fadeOutUnsafe()
         binding.image.isVisible = false
         binding.largeImage.isVisible = false
-        lifecycleOwner.lifecycleScope.launch {
+        holder.loadJob.launch(lifecycleOwner.lifecycleScope) {
+            preloadGate.awaitLoad(path)
             val imageInfo = try {
-                withContext(Dispatchers.IO) { path.loadImageInfo() }
+                readImageInfo(path)
             } catch (e: Exception) {
+                if (e is CancellationException && !isActive) {
+                    // Recycled or bound to another image. Its views belong to the new bind.
+                    throw e
+                }
+                // Includes a CancellationException from the read itself, which must not leave
+                // the page loading forever and its neighbors waiting.
                 e.printStackTrace()
                 showError(binding, e)
+                preloadGate.onPageLoaded(path)
                 return@launch
             }
             loadImageWithInfo(binding, path, imageInfo)
         }
-    }
-
-    private fun Path.loadImageInfo(): ImageInfo {
-        val attributes = readAttributes(BasicFileAttributes::class.java)
-        val mimeType = AndroidFileTypeDetector.getMimeType(this, attributes).asMimeType()
-        val bitmapOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        newInputStream().use { BitmapFactory.decodeStream(it, null, bitmapOptions) }
-        val imageInfo = ImageInfo(
-            attributes, bitmapOptions.outWidth, bitmapOptions.outHeight,
-            bitmapOptions.outMimeType?.asMimeTypeOrNull() ?: mimeType
-        )
-        // Coil applies EXIF for the normal view. Only the large view needs it read here.
-        if (imageInfo.shouldUseLargeImageView) {
-            imageInfo.largeImageOrientation = try {
-                newInputStream().use { LargeImageOrientation.read(it, bitmapOptions.outMimeType) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                LargeImageOrientation.NORMAL
-            }
-        }
-        return imageInfo
     }
 
     private fun loadImageWithInfo(
@@ -116,9 +107,18 @@ class ImageViewerAdapter(
                 load(path to imageInfo.attributes) {
                     size(Size.ORIGINAL)
                     fadeIn(context.shortAnimTime)
+                    placeholderMemoryCacheKey(
+                        ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
+                    )
                     listener(
-                        onSuccess = { _, _ -> binding.progress.fadeOutUnsafe() },
-                        onError = { _, result -> showError(binding, result.throwable) }
+                        onSuccess = { _, _ ->
+                            binding.progress.fadeOutUnsafe()
+                            preloadGate.onPageLoaded(path)
+                        },
+                        onError = { _, result ->
+                            showError(binding, result.throwable)
+                            preloadGate.onPageLoaded(path)
+                        }
                     )
                 }
             }
@@ -132,43 +132,56 @@ class ImageViewerAdapter(
                 isVisible = true
                 alpha = 0f
                 setOnImageEventListener(object : DefaultOnImageEventListener() {
+                    // With a preview this comes before the full image has loaded.
                     override fun onReady() {
                         setDoubleTapZoomScale(binding.largeImage.cropScale)
-                        binding.progress.fadeOutUnsafe()
                         binding.largeImage.fadeInUnsafe(true)
+                    }
+
+                    override fun onImageLoaded() {
+                        binding.progress.fadeOutUnsafe()
+                        preloadGate.onPageLoaded(path)
                     }
 
                     override fun onImageLoadError(e: Exception) {
                         e.printStackTrace()
                         showError(binding, e)
+                        preloadGate.onPageLoaded(path)
                     }
                 })
-                setImageRestoringSavedState(ImageSource.uri(path.fileProviderUri))
+                val imageSource = ImageSource.uri(path.fileProviderUri)
+                val previewSource = binding.largeImagePreview(path, imageInfo)
+                if (previewSource != null) {
+                    // A preview needs the dimensions of the image.
+                    imageSource.dimensions(imageInfo.width, imageInfo.height)
+                }
+                setImageRestoringSavedState(imageSource, previewSource)
             }
         }
     }
 
-    private val ImageInfo.shouldUseLargeImageView: Boolean
-        get() {
-            // See BitmapFactory.cpp encodedFormatToString()
-            if (mimeType == MimeType.IMAGE_GIF) {
-                return false
+    private fun ImageViewerItemBinding.largeImagePreview(
+        path: Path,
+        imageInfo: ImageInfo
+    ): ImageSource? {
+        val key = ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
+        val cached = root.context.imageLoader.memoryCache?.get(key)?.bitmap ?: return null
+        return try {
+            val preview = ThumbnailPlaceholder.toStoredOrientation(
+                cached, imageInfo.largeImageOrientation
+            )
+            // The view recycles a bitmap it was given, but the memory cache owns the cached one.
+            if (preview === cached) {
+                ImageSource.cachedBitmap(preview)
+            } else {
+                ImageSource.bitmap(preview)
             }
-            if (width <= 0 || height <= 0) {
-                return false
-            }
-            // 4 bytes per pixel for ARGB_8888.
-            if (width * height * 4 > MAX_BITMAP_SIZE) {
-                return true
-            }
-            if (width > 2048 || height > 2048) {
-                val ratio = width.toFloat() / height
-                if (ratio < 0.5 || ratio > 2) {
-                    return true
-                }
-            }
-            return false
+        } catch (e: Exception) {
+            // Only a placeholder.
+            e.printStackTrace()
+            null
         }
+    }
 
     private val SubsamplingScaleImageView.cropScale: Float
         get() {
@@ -190,19 +203,8 @@ class ImageViewerAdapter(
         binding.largeImage.isVisible = false
     }
 
-    companion object {
-        // @see android.graphics.RecordingCanvas#MAX_BITMAP_SIZE
-        private const val MAX_BITMAP_SIZE = 100 * 1024 * 1024
+    class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root) {
+        internal val loadJob = BindJob()
     }
 
-    class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root)
-
-    private class ImageInfo(
-        val attributes: BasicFileAttributes,
-        val width: Int,
-        val height: Int,
-        val mimeType: MimeType
-    ) {
-        var largeImageOrientation = LargeImageOrientation.NORMAL
-    }
 }
