@@ -9,6 +9,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.util.Log
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Drops idle NFS contexts when the default network is lost or replaced, so the next call mounts
@@ -22,8 +24,43 @@ internal object NfsNetworkMonitor {
     @Volatile
     private var state = NetworkState(true)
 
+    @Volatile
+    private var connectivityManager: ConnectivityManager? = null
+
+    /**
+     * Retiring a context can block on its lock or on libnfs, and the callbacks of every app
+     * component share one ConnectivityThread. One worker keeps that thread free and the
+     * network events in order. Lives as long as the process, like the callback.
+     */
+    private val worker: ExecutorService by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "NfsNetworkMonitor").apply { isDaemon = true }
+        }
+    }
+
+    /**
+     * False only while Android reports no default network. A missed or late callback must not
+     * keep calls failing once a network is back (rc2 finding B3), so an offline state is checked
+     * against the active network before a call is failed for it.
+     */
     val isNetworkAvailable: Boolean
-        get() = state.isAvailable
+        get() {
+            val state = state
+            if (state.isAvailable) {
+                return true
+            }
+            val active = try {
+                connectivityManager?.activeNetwork
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Cannot read the active network", e)
+                return true
+            }
+            if (state.confirm(active)) {
+                Log.i(TAG, "A network is active although no callback said so")
+                onNetworkChanged()
+            }
+            return state.isAvailable
+        }
 
     fun register(context: Context) {
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
@@ -35,20 +72,21 @@ internal object NfsNetworkMonitor {
             return
         }
         state = newState
+        this.connectivityManager = connectivityManager
         try {
             connectivityManager.registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
                         if (newState.onAvailable(network)) {
                             Log.i(TAG, "Default network changed, dropping idle NFS contexts")
-                            Client.onNetworkChanged()
+                            onNetworkChanged()
                         }
                     }
 
                     override fun onLost(network: Network) {
                         if (newState.onLost(network)) {
                             Log.i(TAG, "Default network lost, dropping idle NFS contexts")
-                            Client.onNetworkChanged()
+                            onNetworkChanged()
                         }
                     }
                 }
@@ -56,7 +94,18 @@ internal object NfsNetworkMonitor {
         } catch (e: RuntimeException) {
             // SecurityException or too many callbacks: keep the old behavior.
             Log.w(TAG, "Cannot watch the default network", e)
+            this.connectivityManager = null
             state = NetworkState(true)
+        }
+    }
+
+    private fun onNetworkChanged() {
+        worker.execute {
+            try {
+                Client.onNetworkChanged()
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Handling a network change failed", e)
+            }
         }
     }
 }
