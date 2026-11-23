@@ -18,8 +18,8 @@ import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnImageEventListener
 import java8.nio.file.Path
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.files.coil.fadeIn
 import me.zhanghai.android.files.databinding.ImageViewerItemBinding
@@ -48,25 +48,30 @@ class ImageViewerAdapter(
         val binding = holder.binding
         binding.image.setOnPhotoTapListener { view, _, _ -> listener(view) }
         binding.largeImage.setOnClickListener(listener)
-        loadImage(binding, path)
+        loadImage(holder, path)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
 
+        holder.loadJob.cancel()
         val binding = holder.binding
         binding.image.dispose()
         binding.largeImage.recycle()
     }
 
-    private fun loadImage(binding: ImageViewerItemBinding, path: Path) {
+    private fun loadImage(holder: ViewHolder, path: Path) {
+        val binding = holder.binding
         binding.progress.fadeInUnsafe(true)
         binding.errorText.fadeOutUnsafe()
         binding.image.isVisible = false
         binding.largeImage.isVisible = false
-        lifecycleOwner.lifecycleScope.launch {
+        holder.loadJob.launch(lifecycleOwner.lifecycleScope) {
             val imageInfo = try {
                 withContext(Dispatchers.IO) { path.loadImageInfo() }
+            } catch (e: CancellationException) {
+                // Recycled or bound to another image. Its views belong to the new bind.
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 showError(binding, e)
@@ -139,6 +144,8 @@ class ImageViewerAdapter(
         binding.largeImage.isVisible = false
     }
 
-    class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root)
+    class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root) {
+        internal val loadJob = BindJob()
+    }
 
 }
