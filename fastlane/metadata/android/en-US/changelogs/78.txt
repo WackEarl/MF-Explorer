@@ -1,0 +1,4 @@
+- Sort order and view are remembered per folder, with a menu entry to reset them or use them for all folders.
+- Folder settings are stored without readable paths, and app data is excluded from Android backup.
+- Tapping the current breadcrumb reloads a folder that failed to load.
+- A folder made with "New folder" is scrolled into view.
