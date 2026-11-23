@@ -8,6 +8,7 @@ package me.zhanghai.android.files.coil
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import coil.decode.BitmapFactoryDecoder
 import coil.decode.DataSource
@@ -157,9 +158,78 @@ class ExifThumbnailTest {
     }
 
     @Test
-    fun tooSmallThumbnailFallsBackToTheFullDecodeWithOrientation() {
-        // 160x107 for a 512x384 request needs more than twice the scaling up.
+    fun aSmallThumbnailIsUsedForALargerRequest() {
+        // 160x107 for a 512x384 request is scaled up when displayed, not read from the photo.
         val jpeg = jpeg(1200, 800, 6, 160, 107)
+
+        val bitmap = jpeg.countingSource().second.use {
+            ExifThumbnail.decode(it, 384, 512, Scale.FIT)
+        }
+
+        assertNotNull(bitmap)
+        // Rotated by 90 degrees.
+        assertEquals(107, bitmap!!.width)
+        assertEquals(160, bitmap.height)
+    }
+
+    @Test
+    fun theBlackBarsOfAPaddedThumbnailAreCutOff() {
+        // A 3:2 camera photo shown portrait, with the 160x120 thumbnail every camera writes.
+        for (orientation in listOf(1, 6, 8)) {
+            val main = TestJpegs.encode(TestJpegs.quadrants(1500, 1000))
+            val thumbnail = TestJpegs.encode(TestJpegs.letterboxed(160, 120, 160, 106), 90)
+            val jpeg = TestJpegs.withExif(main, orientation, thumbnail)
+
+            val bitmap = jpeg.countingSource().second.use {
+                ExifThumbnail.decode(it, 105, 105, Scale.FILL)
+            }
+
+            assertNotNull("orientation $orientation", bitmap)
+            val rotated = orientation != 1
+            // Exactly the 160x106 the camera drew, without the black rows around it.
+            assertEquals("orientation $orientation", if (rotated) 106 else 160, bitmap!!.width)
+            assertEquals("orientation $orientation", if (rotated) 160 else 106, bitmap.height)
+            assertQuadrants(bitmap, orientation, 160, 106)
+            for ((x, y) in listOf(
+                0 to 0, bitmap.width - 1 to 0, 0 to bitmap.height - 1,
+                bitmap.width - 1 to bitmap.height - 1
+            )) {
+                val pixel = bitmap.getPixel(x, y)
+                assertTrue("orientation $orientation: black at ($x, $y)",
+                    Color.red(pixel) + Color.green(pixel) + Color.blue(pixel) > 3 * 60)
+            }
+        }
+    }
+
+    @Test
+    fun aPortraitThumbnailOfALandscapeBufferIsPillarboxed() {
+        val main = TestJpegs.encode(TestJpegs.quadrants(1000, 1500))
+        val thumbnail = TestJpegs.encode(TestJpegs.letterboxed(160, 120, 80, 120), 90)
+        val jpeg = TestJpegs.withExif(main, 1, thumbnail)
+
+        val bitmap = jpeg.countingSource().second.use {
+            ExifThumbnail.decode(it, 105, 105, Scale.FILL)
+        }
+
+        assertEquals(80, bitmap!!.width)
+        assertEquals(120, bitmap.height)
+    }
+
+    @Test
+    fun aThumbnailOfAnotherAspectRatioWithoutBarsFallsBack() {
+        // 4:3 content edge to edge cannot be the whole of a 3:2 photo.
+        val jpeg = jpeg(1200, 800, 1, 512, 384)
+        val (_, source) = jpeg.countingSource()
+
+        source.use {
+            assertNull(ExifThumbnail.decode(it, 256, 192, Scale.FIT))
+            assertEquals(jpeg.size.toLong(), it.readByteArray().size.toLong())
+        }
+    }
+
+    @Test
+    fun aMismatchedThumbnailFallsBackToTheFullDecodeWithOrientation() {
+        val jpeg = jpeg(1200, 800, 6, 160, 160)
         val (_, source) = jpeg.countingSource()
 
         assertNull(ExifThumbnail.decode(source, 512, 384, Scale.FIT))
@@ -173,17 +243,6 @@ class ExifThumbnailTest {
         // Rotated by 90 degrees and scaled to fit.
         assertEquals(256, bitmap.width)
         assertEquals(384, bitmap.height)
-    }
-
-    @Test
-    fun paddedThumbnailOfAnotherAspectRatioFallsBack() {
-        // A 4:3 thumbnail of a 3:2 photo has black bars.
-        val jpeg = jpeg(1200, 800, 1, 512, 384)
-        val bitmap = jpeg.countingSource().second.use {
-            ExifThumbnail.decode(it, 256, 192, Scale.FIT)
-        }
-
-        assertNull(bitmap)
     }
 
     @Test
@@ -264,11 +323,15 @@ class ExifThumbnailTest {
     }
 
     @Test
-    fun usableThresholds() {
-        // Exactly half the requested size is still fine, a little less is not.
-        assertTrue(ExifThumbnail.isUsable(256, 192, 4000, 3000, 512, 384, Scale.FIT))
-        assertFalse(ExifThumbnail.isUsable(250, 188, 4000, 3000, 512, 384, Scale.FIT))
-        assertFalse(ExifThumbnail.isUsable(512, 384, 0, 0, 256, 192, Scale.FIT))
-        assertFalse(ExifThumbnail.isUsable(0, 0, 4000, 3000, 256, 192, Scale.FIT))
+    fun contentRects() {
+        // Same aspect ratio, within the tolerance.
+        assertEquals(Rect(0, 0, 160, 107), ExifThumbnail.contentRect(160, 107, 6000, 4000))
+        assertEquals(Rect(0, 0, 160, 120), ExifThumbnail.contentRect(160, 120, 4608, 3456))
+        // Letterboxed 3:2 in 4:3, as Sony, Canon, Nikon and Pentax write it.
+        assertEquals(Rect(0, 6, 160, 113), ExifThumbnail.contentRect(160, 120, 9504, 6336))
+        // Pillarboxed portrait in landscape.
+        assertEquals(Rect(40, 0, 120, 120), ExifThumbnail.contentRect(160, 120, 1000, 1500))
+        assertNull(ExifThumbnail.contentRect(160, 120, 0, 0))
+        assertNull(ExifThumbnail.contentRect(0, 0, 4000, 3000))
     }
 }
