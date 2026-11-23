@@ -59,6 +59,8 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
 
     private lateinit var neighborPreloadGate: NeighborPreloadGate
 
+    private val deletingPaths = mutableSetOf<Path>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -168,8 +170,17 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     }
 
     override fun delete(path: Path) {
+        // A second confirmation while the first delete still runs, or after it, would delete
+        // twice and show an error for an image that is already gone.
+        if (path !in paths || !deletingPaths.add(path)) {
+            return
+        }
         viewLifecycleOwner.lifecycleScope.launch {
-            val errorMessage = deleteImage(path)
+            val errorMessage = try {
+                deleteImage(path)
+            } finally {
+                deletingPaths.remove(path)
+            }
             if (errorMessage != null) {
                 showToast(errorMessage)
                 return@launch
@@ -221,7 +232,6 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
 
     private val currentPath: Path
         get() = paths[binding.viewPager.currentItem]
-
 
     @Parcelize
     class Args(val intent: Intent, val position: Int) : ParcelableArgs

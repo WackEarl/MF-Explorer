@@ -21,6 +21,7 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnIm
 import java8.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.files.coil.fadeIn
 import me.zhanghai.android.files.databinding.ImageViewerItemBinding
@@ -35,7 +36,10 @@ import kotlin.math.max
 internal class ImageViewerAdapter(
     private val lifecycleOwner: LifecycleOwner,
     private val listener: (View) -> Unit,
-    private val preloadGate: NeighborPreloadGate
+    private val preloadGate: NeighborPreloadGate,
+    private val readImageInfo: suspend (Path) -> ImageInfo = {
+        withContext(Dispatchers.IO) { it.loadImageInfo() }
+    }
 ) : SimpleAdapter<Path, ImageViewerAdapter.ViewHolder>() {
     override val hasStableIds: Boolean
         get() = true
@@ -65,7 +69,6 @@ internal class ImageViewerAdapter(
 
     private fun loadImage(holder: ViewHolder, path: Path) {
         val binding = holder.binding
-        holder.loadJob.cancel()
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
@@ -76,11 +79,14 @@ internal class ImageViewerAdapter(
         holder.loadJob.launch(lifecycleOwner.lifecycleScope) {
             preloadGate.awaitLoad(path)
             val imageInfo = try {
-                withContext(Dispatchers.IO) { path.loadImageInfo() }
-            } catch (e: CancellationException) {
-                // Recycled or bound to another image. Its views belong to the new bind.
-                throw e
+                readImageInfo(path)
             } catch (e: Exception) {
+                if (e is CancellationException && !isActive) {
+                    // Recycled or bound to another image. Its views belong to the new bind.
+                    throw e
+                }
+                // Includes a CancellationException from the read itself, which must not leave
+                // the page loading forever and its neighbors waiting.
                 e.printStackTrace()
                 showError(binding, e)
                 preloadGate.onPageLoaded(path)
