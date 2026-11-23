@@ -1,0 +1,5 @@
+- JPEG thumbnails load much faster: the thumbnail the camera embedded is used instead of reading the whole photo.
+- Loading thumbnails no longer holds up opening other folders on the same network share.
+- The image viewer shows the thumbnail at once with a loading indicator while the full image loads.
+- Deleting in the image viewer no longer freezes the app.
+- Fast swiping in the image viewer no longer shows the wrong image.
