@@ -62,6 +62,7 @@ internal class ImageViewerAdapter(
 
         holder.loadJob.cancel()
         val binding = holder.binding
+        binding.progress.hide()
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
@@ -72,7 +73,7 @@ internal class ImageViewerAdapter(
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
-        binding.progress.fadeInUnsafe(true)
+        binding.progress.show()
         binding.errorText.fadeOutUnsafe()
         binding.image.isVisible = false
         binding.largeImage.isVisible = false
@@ -112,7 +113,7 @@ internal class ImageViewerAdapter(
                     )
                     listener(
                         onSuccess = { _, _ ->
-                            binding.progress.fadeOutUnsafe()
+                            binding.progress.hide()
                             preloadGate.onPageLoaded(path)
                         },
                         onError = { _, result ->
@@ -139,7 +140,7 @@ internal class ImageViewerAdapter(
                     }
 
                     override fun onImageLoaded() {
-                        binding.progress.fadeOutUnsafe()
+                        binding.progress.hide()
                         preloadGate.onPageLoaded(path)
                     }
 
@@ -196,7 +197,7 @@ internal class ImageViewerAdapter(
         }
 
     private fun showError(binding: ImageViewerItemBinding, throwable: Throwable) {
-        binding.progress.fadeOutUnsafe()
+        binding.progress.hide()
         binding.errorText.text = throwable.toString()
         binding.errorText.fadeInUnsafe(true)
         binding.image.isVisible = false

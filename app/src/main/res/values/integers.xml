@@ -18,4 +18,7 @@
 
     <!-- SevenZOutputFile requires SeekableByteChannel which requires Android N. -->
     <integer name="create_archive_type_seven_z_visibility">@integer/visibility_gone</integer>
+
+    <!-- Milliseconds the image viewer waits before showing that the full image is loading. -->
+    <integer name="image_viewer_progress_show_delay">150</integer>
 </resources>
