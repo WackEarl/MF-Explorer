@@ -10,11 +10,15 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import coil.decode.BitmapFactoryDecoder
+import coil.decode.DataSource
+import coil.fetch.DrawableResult
+import coil.fetch.SourceResult
 import coil.decode.ImageSource
 import coil.request.Options
 import coil.size.Scale
 import coil.size.Size
 import kotlinx.coroutines.runBlocking
+import me.zhanghai.android.files.file.MimeType
 import me.zhanghai.android.files.testing.TestJpegs
 import me.zhanghai.android.files.testing.countingSource
 import org.junit.Assert.assertEquals
@@ -195,6 +199,68 @@ class ExifThumbnailTest {
 
         assertTrue("read ${counting.bytesRead} bytes",
             counting.bytesRead <= ExifThumbnail.MAX_HEADER_BYTES + 64 * 1024)
+    }
+
+    @Test
+    fun frameHeaderBeyondTheLimitUsesTheExifPixelDimensions() {
+        val main = TestJpegs.encode(TestJpegs.quadrants(1200, 800))
+        val thumbnail = TestJpegs.encode(TestJpegs.quadrants(300, 200), 80)
+        val jpeg = TestJpegs.withExif(
+            main, 6, thumbnail, pixelDimensions = 1200 to 800,
+            paddingBytes = ExifThumbnail.MAX_HEADER_BYTES + 64 * 1024
+        )
+        val (counting, source) = jpeg.countingSource()
+
+        val bitmap = source.use { ExifThumbnail.decode(it, 200, 300, Scale.FIT) }
+
+        assertNotNull(bitmap)
+        assertEquals(200, bitmap!!.width)
+        assertEquals(300, bitmap.height)
+        assertTrue("read ${counting.bytesRead} bytes",
+            counting.bytesRead <= ExifThumbnail.MAX_HEADER_BYTES + 64 * 1024)
+    }
+
+    @Test
+    fun withoutAnyImageSizeTheThumbnailIsNotUsed() {
+        val main = TestJpegs.encode(TestJpegs.quadrants(1200, 800))
+        val thumbnail = TestJpegs.encode(TestJpegs.quadrants(300, 200), 80)
+        val jpeg = TestJpegs.withExif(
+            main, 1, thumbnail, paddingBytes = ExifThumbnail.MAX_HEADER_BYTES + 64 * 1024
+        )
+
+        assertNull(jpeg.countingSource().second.use {
+            ExifThumbnail.decode(it, 300, 200, Scale.FIT)
+        })
+    }
+
+    @Test
+    fun anExifThumbnailClosesTheSource() {
+        val jpeg = jpeg(1200, 800, 1, 300, 200)
+        val (counting, source) = jpeg.countingSource()
+
+        val result = imageResult(
+            source, MimeType.IMAGE_JPEG, 300 to 200, Options(context), DataSource.NETWORK
+        )
+
+        assertTrue(result is DrawableResult)
+        assertTrue(counting.isClosed)
+    }
+
+    @Test
+    fun aFullDecodeGetsTheOpenSource() {
+        val jpeg = jpeg(1200, 800, 1, null, null)
+        val (counting, source) = jpeg.countingSource()
+
+        val result = imageResult(
+            source, MimeType.IMAGE_JPEG, 300 to 200, Options(context), DataSource.NETWORK
+        )
+
+        assertTrue(result is SourceResult)
+        assertFalse(counting.isClosed)
+        assertEquals(jpeg.size.toLong(), (result as SourceResult).source.source().readByteArray()
+            .size.toLong())
+        result.source.close()
+        assertTrue(counting.isClosed)
     }
 
     @Test

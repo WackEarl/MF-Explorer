@@ -8,6 +8,7 @@ package me.zhanghai.android.files.coil
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import coil.decode.DecodeUtils
 import coil.size.Scale
@@ -22,6 +23,8 @@ import kotlin.math.abs
  * MiB per camera photo.
  */
 internal object ExifThumbnail {
+    private const val TAG = "ExifThumbnail"
+
     /**
      * At most this much of the file is read to find the thumbnail. EXIF lives in one APP1
      * segment of at most 64 KiB, but other segments may come first.
@@ -45,7 +48,8 @@ internal object ExifThumbnail {
         val exif = try {
             ExifInterface(LimitedInputStream(source.peek().inputStream(), MAX_HEADER_BYTES))
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Not an error: the image is decoded in full instead.
+            Log.d(TAG, "Cannot read EXIF", e)
             return null
         }
         val bytes = exif.thumbnailBytes ?: return null
@@ -57,9 +61,12 @@ internal object ExifThumbnail {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val thumbnailWidth = if (isRotated) bounds.outHeight else bounds.outWidth
         val thumbnailHeight = if (isRotated) bounds.outWidth else bounds.outHeight
-        // The primary image size comes from the JPEG frame header, which precedes the pixels.
+        // The primary image size comes from the JPEG frame header, which precedes the pixels. If
+        // other segments push it past the read limit, the size EXIF records is the next best.
         val storedImageWidth = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
+            .takeIf { it > 0 } ?: exif.getAttributeInt(ExifInterface.TAG_PIXEL_X_DIMENSION, 0)
         val storedImageHeight = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
+            .takeIf { it > 0 } ?: exif.getAttributeInt(ExifInterface.TAG_PIXEL_Y_DIMENSION, 0)
         val imageWidth = if (isRotated) storedImageHeight else storedImageWidth
         val imageHeight = if (isRotated) storedImageWidth else storedImageHeight
         if (!isUsable(thumbnailWidth, thumbnailHeight, imageWidth, imageHeight, width, height,
