@@ -8,6 +8,7 @@ package me.zhanghai.android.files.provider.nfs.client
 import android.os.Looper
 import android.system.OsConstants
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import java8.nio.channels.SeekableByteChannel
 import me.zhanghai.android.files.app.application
 import me.zhanghai.android.files.provider.common.ByteString
@@ -27,6 +28,14 @@ internal object Client {
     private const val TAG = "NfsClient"
 
     private val table = MountTable<Authority, Mount>()
+
+    /** Replaces libnfs in unit tests. Null in the app. */
+    @VisibleForTesting
+    @Volatile
+    internal var nfsForTest: NfsApi? = null
+
+    private val nfs: NfsApi
+        get() = nfsForTest ?: NfsNative
     private val incompleteFiles by lazy {
         IncompleteFiles<Authority, ByteString, NfsPath>().apply {
             val file = File(application.noBackupFilesDir, "nfs-pending-deletes")
@@ -97,7 +106,7 @@ internal object Client {
                 if (context == 0L) {
                     continue
                 }
-                val localAddress = NfsNative.localAddress(context)
+                val localAddress = nfs.localAddress(context)
                 if (!NfsTimeouts.abortOnNetworkLoss(
                         mount.authority.host, localAddress, remainingAddresses
                     )) {
@@ -106,7 +115,7 @@ internal object Client {
                 mount.stale = true
                 Log.i(TAG, "Network lost, ending the NFS session to ${mount.authority} " +
                     "(open files: ${mount.files})")
-                NfsNative.shutdownSocket(context)
+                nfs.shutdownSocket(context)
             } finally {
                 mount.destroyLock.unlock()
             }
@@ -148,7 +157,7 @@ internal object Client {
     private fun mount(authority: Authority): Mount {
         table.current(authority)?.let { return it }
         Log.i(TAG, "Mounting a new NFS context for $authority")
-        val context = NfsNative.create(
+        val context = nfs.create(
             authority.uid, authority.gid, NfsTimeouts.MOUNT_TIMEOUT_MILLIS
         )
         if (context == 0L) {
@@ -159,19 +168,19 @@ internal object Client {
         }
         // One UI port covers both protocols. Zero leaves discovery to the portmapper.
         val port = authority.nfsPort
-        val rc = NfsNative.mount(
+        val rc = nfs.mount(
             context, host, authority.export.toByteArray(), port, port
         )
         if (rc != 0) {
             val exception = error(context, authority.export)
-            NfsNative.destroy(context)
+            nfs.destroy(context)
             throw exception
         }
-        NfsNative.setTimeout(context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
+        nfs.setTimeout(context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
         val mount = Mount(authority, context)
         val installed = table.install(mount)
         if (installed !== mount) {
-            NfsNative.destroy(context)
+            nfs.destroy(context)
         }
         return installed
     }
@@ -239,7 +248,7 @@ internal object Client {
                         deletePendingLocked(mount)
                     }
                     if (replayTimeout in 1 until NfsTimeouts.RPC_TIMEOUT_MILLIS) {
-                        NfsNative.setTimeout(mount.context, replayTimeout)
+                        nfs.setTimeout(mount.context, replayTimeout)
                         timeoutChanged = true
                     }
                     return block(mount)
@@ -271,7 +280,7 @@ internal object Client {
                 }
             } finally {
                 if (timeoutChanged && mount.alive && mount.context != 0L) {
-                    NfsNative.setTimeout(mount.context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
+                    nfs.setTimeout(mount.context, NfsTimeouts.RPC_TIMEOUT_MILLIS)
                 }
                 mount.lock.unlock()
                 reap(mount)
@@ -288,7 +297,7 @@ internal object Client {
         incompleteFiles.drain(mount.authority) { remote, path, maxSize, stillPending ->
             val remoteBytes = remote.borrowBytes()
             val name = path ?: remote
-            val values = NfsNative.stat(mount.context, remoteBytes, true)
+            val values = nfs.stat(mount.context, remoteBytes, true)
             if (values == null || values[0] < 0) {
                 val e = error(mount.context, "")
                 return@drain if (e.isTransportFailure()) {
@@ -308,7 +317,7 @@ internal object Client {
                 Log.i(TAG, "Not deleting $name later: a new file of that name was written")
                 return@drain IncompleteFiles.Outcome.DONE
             }
-            if (NfsNative.unlink(mount.context, remoteBytes) < 0) {
+            if (nfs.unlink(mount.context, remoteBytes) < 0) {
                 val e = error(mount.context, "")
                 Log.w(TAG, "Deleting incomplete $name failed: ${e.message}")
                 return@drain if (e.isTransportFailure()) {
@@ -360,7 +369,7 @@ internal object Client {
             val context = mount.context
             mount.context = 0L
             if (context != 0L) {
-                NfsNative.destroy(context)
+                nfs.destroy(context)
             }
         } finally {
             mount.destroyLock.unlock()
@@ -421,7 +430,7 @@ internal object Client {
     }
 
     private fun Mount.ensureSession() {
-        if (context == 0L || !NfsNative.sessionUp(context)) {
+        if (context == 0L || !nfs.sessionUp(context)) {
             throw exception(OsConstants.EIO, "nfs_service failed")
         }
     }
@@ -445,8 +454,8 @@ internal object Client {
     }
 
     private fun error(context: Long, file: String): ClientException {
-        val errno = NfsNative.takeErrno()
-        val message = if (context != 0L) NfsNative.getError(context) else "nfs_init_context failed"
+        val errno = nfs.takeErrno()
+        val message = if (context != 0L) nfs.getError(context) else "nfs_init_context failed"
         return exception(errno, message)
     }
 
@@ -489,7 +498,7 @@ internal object Client {
             val stats = ArrayList<LongArray>()
             check(
                 mount.context,
-                NfsNative.list(mount.context, directory.remoteBytes, names, stats),
+                nfs.list(mount.context, directory.remoteBytes, names, stats),
                 directory.toString()
             )
             names.mapIndexed { index, name ->
@@ -507,7 +516,7 @@ internal object Client {
             path.takeListedStat()?.let { return it }
         }
         return use(path.authority, replay = true, waiter = true) { mount ->
-            val values = NfsNative.stat(mount.context, path.remoteBytes, noFollowLinks)
+            val values = nfs.stat(mount.context, path.remoteBytes, noFollowLinks)
                 ?: throw error(mount.context, "")
             if (values[0] < 0) {
                 throw error(mount.context, "")
@@ -518,7 +527,7 @@ internal object Client {
 
     fun mkdir(path: NfsPath, mode: Int) {
         use(path.authority) { mount ->
-            check(mount.context, NfsNative.mkdir(mount.context, path.remoteBytes, mode), path.toString())
+            check(mount.context, nfs.mkdir(mount.context, path.remoteBytes, mode), path.toString())
             forgetIncomplete(path)
         }
         LocalWatchService.onEntryCreated(path)
@@ -529,9 +538,9 @@ internal object Client {
             val attributes = stat(path, true)
             use(path.authority) { mount ->
                 val rc = if (OsConstants.S_ISDIR(attributes.mode)) {
-                    NfsNative.rmdir(mount.context, path.remoteBytes)
+                    nfs.rmdir(mount.context, path.remoteBytes)
                 } else {
-                    NfsNative.unlink(mount.context, path.remoteBytes)
+                    nfs.unlink(mount.context, path.remoteBytes)
                 }
                 check(mount.context, rc, path.toString())
             }
@@ -556,7 +565,7 @@ internal object Client {
         use(source.authority) { mount ->
             check(
                 mount.context,
-                NfsNative.rename(mount.context, source.remoteBytes, target.remoteBytes),
+                nfs.rename(mount.context, source.remoteBytes, target.remoteBytes),
                 source.toString()
             )
             forgetIncomplete(source)
@@ -569,20 +578,20 @@ internal object Client {
     fun readLink(path: NfsPath): ByteString =
         use(path.authority, replay = true) { mount ->
             val out = arrayOfNulls<ByteArray>(1)
-            check(mount.context, NfsNative.readlink(mount.context, path.remoteBytes, out), path.toString())
+            check(mount.context, nfs.readlink(mount.context, path.remoteBytes, out), path.toString())
             ByteString(out[0]!!)
         }
 
     fun chmod(path: Path, mode: Int) {
         use(path.authority, replay = true) { mount ->
-            check(mount.context, NfsNative.chmod(mount.context, path.remoteBytes, mode), "")
+            check(mount.context, nfs.chmod(mount.context, path.remoteBytes, mode), "")
         }
         LocalWatchService.onEntryModified(path as java8.nio.file.Path)
     }
 
     fun chown(path: Path, uid: Int, gid: Int) {
         use(path.authority, replay = true) { mount ->
-            check(mount.context, NfsNative.chown(mount.context, path.remoteBytes, uid, gid), "")
+            check(mount.context, nfs.chown(mount.context, path.remoteBytes, uid, gid), "")
         }
         LocalWatchService.onEntryModified(path as java8.nio.file.Path)
     }
@@ -591,7 +600,7 @@ internal object Client {
         use(path.authority, replay = true) { mount ->
             check(
                 mount.context,
-                NfsNative.utimes(
+                nfs.utimes(
                     mount.context, path.remoteBytes, atimeSec, atimeNsec.toLong(), mtimeSec,
                     mtimeNsec.toLong()
                 ),
@@ -610,7 +619,7 @@ internal object Client {
             mode = mode or W_OK
         }
         use(path.authority, replay = true) { mount ->
-            check(mount.context, NfsNative.access(mount.context, path.remoteBytes, mode), path.toString())
+            check(mount.context, nfs.access(mount.context, path.remoteBytes, mode), path.toString())
         }
     }
 
@@ -631,7 +640,7 @@ internal object Client {
             // way for other thumbnails, and a listing would still queue behind them.
             waiter = pipeline
         ) { mount ->
-            val opened = NfsNative.open(mount.context, path.remoteBytes, flags, mode)
+            val opened = nfs.open(mount.context, path.remoteBytes, flags, mode)
             if (opened == 0L) {
                 throw error(mount.context, path.toString())
             }
@@ -662,7 +671,7 @@ internal object Client {
     ): Int =
         // Bulk reads do not yield. A copy can still hold up a listing for one pipeline read.
         useExisting(file, yieldToWaiters = !pipeline) { mount ->
-            val rc = NfsNative.pread(mount.context, file, buffer, buffer.size, offset, pipeline)
+            val rc = nfs.pread(mount.context, file, buffer, buffer.size, offset, pipeline)
             check(mount.context, rc, "")
             rc
         }
@@ -679,7 +688,7 @@ internal object Client {
     /** Size and write share one lock so a second append cannot land in between. */
     internal fun append(path: Path, file: Long, buffer: ByteArray, length: Int): Int =
         useExisting(file) { mount ->
-            val values = NfsNative.fstat(mount.context, file) ?: throw error(mount.context, "")
+            val values = nfs.fstat(mount.context, file) ?: throw error(mount.context, "")
             if (values[0] < 0) {
                 throw error(mount.context, "")
             }
@@ -705,7 +714,7 @@ internal object Client {
         var done = 0
         while (pendingLength > 0) {
             val rc = try {
-                val n = NfsNative.pwrite(mount.context, file, pending, pendingLength, off)
+                val n = nfs.pwrite(mount.context, file, pending, pendingLength, off)
                 check(mount.context, n, "")
                 n
             } catch (e: ClientException) {
@@ -733,19 +742,19 @@ internal object Client {
 
     internal fun fsync(path: Path, file: Long) {
         useExisting(file) { mount ->
-            check(mount.context, NfsNative.fsync(mount.context, file), "")
+            check(mount.context, nfs.fsync(mount.context, file), "")
         }
     }
 
     internal fun ftruncate(path: Path, file: Long, size: Long) {
         useExisting(file) { mount ->
-            check(mount.context, NfsNative.ftruncate(mount.context, file, size), "")
+            check(mount.context, nfs.ftruncate(mount.context, file, size), "")
         }
     }
 
     internal fun fstatSize(path: Path, file: Long): Long =
         useExisting(file) { mount ->
-            val values = NfsNative.fstat(mount.context, file) ?: throw error(mount.context, "")
+            val values = nfs.fstat(mount.context, file) ?: throw error(mount.context, "")
             if (values[0] < 0) {
                 throw error(mount.context, "")
             }
@@ -761,11 +770,11 @@ internal object Client {
             if (!mount.alive || mount.context == 0L) {
                 throw exception(OsConstants.EIO, "NFS connection closed")
             }
-            val closeRc = NfsNative.closeFile(mount.context, file)
-            val closeErrno = NfsNative.takeErrno()
-            val closeMessage = NfsNative.getError(mount.context)
+            val closeRc = nfs.closeFile(mount.context, file)
+            val closeErrno = nfs.takeErrno()
+            val closeMessage = nfs.getError(mount.context)
             val unlinkRc = if (deleteOnClose) {
-                NfsNative.unlink(mount.context, path.remoteBytes)
+                nfs.unlink(mount.context, path.remoteBytes)
             } else {
                 0
             }
