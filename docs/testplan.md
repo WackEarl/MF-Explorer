@@ -8,17 +8,17 @@ The run must not crash: no process crash, no forced close, no stuck ANR. Record 
 
 For each release candidate:
 
-1. Gary publishes the RC and posts a short test request with a link to this file, plus **only** the new or changed points for that version (`R1`, `R2`, …). The fixed smoke suite below is always in scope and is not repeated in the request unless a step itself changed.
-2. Cody runs the fixed smoke suite and the new points on the environment below.
-3. Cody stores the result as `RESULTS.md` on botshare under `tests/mf-explorer/<VERSION>/` (see [Artifacts](#artifacts)), using the [template](#result-template): Pass, Fail, N/A or Not checked per point, version, device or AVD, and date. Cody does **not** comment on GitHub.
-4. Cody posts the botshare path in the Dev group. Gary copies the text of `RESULTS.md` into a comment on the GitHub release issue.
+1. The developer publishes the RC and posts a short test request with a link to this file, plus **only** the new or changed points for that version (`R1`, `R2`, …). The fixed smoke suite below is always in scope and is not repeated in the request unless a step itself changed.
+2. The tester runs the fixed smoke suite and the new points on the environment below.
+3. The tester stores the result as `RESULTS.md` on botshare under `tests/mf-explorer/<VERSION>/` (see [Artifacts](#artifacts)), using the [template](#result-template): Pass, Fail, N/A or Not checked per point, version, device or AVD, and date. The tester does **not** comment on GitHub.
+4. The tester posts the botshare path in the dev chat. The developer copies the text of `RESULTS.md` into a comment on the GitHub release issue.
 
 `<VERSION>` is the exact `versionName`, for example `2.1.8-rc1` or `2.1.8`.
 
 ## Environment
 
 - **Device:** Unraid emulator AVD `nexus_4_14.0` (API 34).
-- **Start and stop:** Cody starts and stops the emulator himself via test-container, not via Homey.
+- **Start and stop:** The tester starts and stops the emulator via test-container.
   - Before starting, check `locks/emulator.md` and `locks/agent-device.md` on botshare and mark them taken (see #60).
   - `agent-device-mcp` keeps looking for the emulator on its own; no fixed wait or restart needed.
   - Export logcat **before** stopping the emulator.
@@ -66,17 +66,17 @@ Run this sequence once, after the online listing and the online delete (S12) hav
 
 ## Release-specific points
 
-Gary lists only new or changed checks as `R1`, `R2`, … in the RC test request, with a link to this file. Cody runs them in addition to the smoke suite and records them in the same table.
+The developer lists only new or changed checks as `R1`, `R2`, … in the RC test request, with a link to this file. The tester runs them in addition to the smoke suite and records them in the same table.
 
 ## Result template
 
-Store this as `RESULTS.md` on botshare under `tests/mf-explorer/<VERSION>/`. Post that path in Dev; Gary copies the text into the GitHub release issue.
+Store this as `RESULTS.md` on botshare under `tests/mf-explorer/<VERSION>/`. Post that path in the dev chat; the developer copies the text into the GitHub release issue.
 
 ```markdown
 ## Test result: <versionName> (<versionCode>)
 
 - Date: YYYY-MM-DD (Europe/Berlin)
-- Tester: Cody
+- Tester: <role or name of the tester>
 - Device: AVD nexus_4_14.0 (API 34)
 - Install: update from <previous version> via `appPath=/apk/<file>.apk` (or clean, if requested)
 - sha256: matches the GitHub release / mismatch
@@ -122,7 +122,7 @@ On botshare:
 
 ```
 tests/mf-explorer/<VERSION>/
-  RESULTS.md          # the result Cody posts the path to in Dev
+  RESULTS.md          # the result whose path the tester posts in the dev chat
   screenshots/        # or PNG files next to RESULTS.md if a subfolder is not practical
   logcat excerpts and android-log export paths
 ```
