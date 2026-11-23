@@ -393,7 +393,34 @@ internal object Client {
         }
     }
 
-    fun list(directory: NfsPath): List<NfsPath> =
+    /**
+     * Runs the deletes that failed while the server was unreachable, e.g. as soon as the
+     * network is back, instead of waiting for the next call on that server. Must not run on
+     * the main thread.
+     */
+    fun deletePendingNow() {
+        if (!incompleteFiles.hasPending()) {
+            return
+        }
+        for (authority in incompleteFiles.pendingGroups()) {
+            try {
+                // use() runs the pending deletes of this server before the empty block.
+                use(authority) {}
+            } catch (e: ClientException) {
+                Log.i(TAG, "Pending deletes on $authority wait for the next call: ${e.message}")
+            }
+        }
+    }
+
+    fun list(directory: NfsPath): List<NfsPath> {
+        val children = listRemote(directory)
+        // A delete that is still pending could not run yet. Its file is about to go.
+        return incompleteFiles.withoutPending(directory.authority, children) {
+            ByteString(it.remoteBytes)
+        }
+    }
+
+    private fun listRemote(directory: NfsPath): List<NfsPath> =
         use(directory.authority, replay = true, waiter = true) { mount ->
             val names = ArrayList<ByteArray>()
             val stats = ArrayList<LongArray>()

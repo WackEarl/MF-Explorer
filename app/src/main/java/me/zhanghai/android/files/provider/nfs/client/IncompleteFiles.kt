@@ -85,6 +85,27 @@ internal class IncompleteFiles<G : Any, K : Any, P : Any>(private val capacity: 
 
     fun hasPending(): Boolean = pendingCount > 0
 
+    /** Servers with pending deletes, in the order they failed. */
+    @Synchronized
+    fun pendingGroups(): List<G> = pending.keys.map { it.first }.distinct()
+
+    /**
+     * [items] without the files of [group] that are still waiting for their delete, so a
+     * listing does not show a partial file that will be removed (rc2 finding B5a).
+     */
+    fun <T> withoutPending(group: G, items: List<T>, keyOf: (T) -> K): List<T> {
+        if (!hasPending()) {
+            return items
+        }
+        val keys = synchronized(this) {
+            pending.keys.filter { it.first == group }.mapTo(HashSet()) { it.second }
+        }
+        if (keys.isEmpty()) {
+            return items
+        }
+        return items.filterNot { keyOf(it) in keys }
+    }
+
     /**
      * Runs [delete] for each pending file of [group], in the order they failed. Stops at the
      * first [Outcome.RETRY] and keeps that entry and the ones after it.

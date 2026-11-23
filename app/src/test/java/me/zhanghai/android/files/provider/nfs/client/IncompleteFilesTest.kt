@@ -149,4 +149,35 @@ class IncompleteFilesTest {
         files.drain("nas") { _, _, _ -> Outcome.DONE }
         assertEquals(emptyList<IncompleteFiles.Pending<String, String>>(), saved)
     }
+
+    @Test
+    fun listingHidesAPendingDeleteThatCouldNotRunYet() {
+        // rc2 B5a: after the network came back, the reload still showed c100.zip with 0 B.
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        assertTrue(files.deferDelete("nas", "/b5/c100.zip"))
+        assertEquals(listOf("nas"), files.pendingGroups())
+
+        val listed = listOf("/b5/c100.zip", "/b5/other.zip")
+        assertEquals(listOf("/b5/other.zip"), files.withoutPending("nas", listed) { it })
+        // Same path on another server is a different file.
+        assertEquals(listed, files.withoutPending("other", listed) { it })
+    }
+
+    @Test
+    fun listingShowsTheFileAgainOnceItIsTakenOver() {
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        files.deferDelete("nas", "/b5/c100.zip")
+        // A new copy writes the same name.
+        files.forget("nas", "/b5/c100.zip")
+        val listed = listOf("/b5/c100.zip")
+        assertEquals(listed, files.withoutPending("nas", listed) { it })
+        assertTrue(files.pendingGroups().isEmpty())
+    }
+
+    @Test
+    fun listingIsUntouchedWithoutPendingDeletes() {
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        val listed = listOf("/b5/c100.zip")
+        assertEquals(listed, files.withoutPending("nas", listed) { it })
+    }
 }

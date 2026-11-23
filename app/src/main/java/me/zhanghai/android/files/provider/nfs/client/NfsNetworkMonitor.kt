@@ -32,11 +32,18 @@ internal object NfsNetworkMonitor {
      * component share one ConnectivityThread. One worker keeps that thread free and the
      * network events in order. Lives as long as the process, like the callback.
      */
-    private val worker: ExecutorService by lazy {
+    private val worker: ExecutorService by lazy { newWorker("NfsNetworkMonitor") }
+
+    /**
+     * Pending deletes can wait for a mount and an RPC. Their own worker, so they do not hold up
+     * the next network event.
+     */
+    private val deleter: ExecutorService by lazy { newWorker("NfsPendingDeletes") }
+
+    private fun newWorker(name: String): ExecutorService =
         Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "NfsNetworkMonitor").apply { isDaemon = true }
+            Thread(runnable, name).apply { isDaemon = true }
         }
-    }
 
     /**
      * False only while Android reports no default network. A missed or late callback must not
@@ -57,7 +64,7 @@ internal object NfsNetworkMonitor {
             }
             if (state.confirm(active)) {
                 Log.i(TAG, "A network is active although no callback said so")
-                onNetworkChanged()
+                onNetworkChanged(available = true)
             }
             return state.isAvailable
         }
@@ -79,14 +86,14 @@ internal object NfsNetworkMonitor {
                     override fun onAvailable(network: Network) {
                         if (newState.onAvailable(network)) {
                             Log.i(TAG, "Default network changed, dropping idle NFS contexts")
-                            onNetworkChanged()
+                            onNetworkChanged(available = true)
                         }
                     }
 
                     override fun onLost(network: Network) {
                         if (newState.onLost(network)) {
                             Log.i(TAG, "Default network lost, dropping idle NFS contexts")
-                            onNetworkChanged()
+                            onNetworkChanged(available = false)
                         }
                     }
                 }
@@ -99,12 +106,23 @@ internal object NfsNetworkMonitor {
         }
     }
 
-    private fun onNetworkChanged() {
+    private fun onNetworkChanged(available: Boolean) {
         worker.execute {
             try {
                 Client.onNetworkChanged()
             } catch (e: RuntimeException) {
                 Log.e(TAG, "Handling a network change failed", e)
+            }
+            if (available) {
+                // Partial files of a copy that lost the connection go now, on the new network,
+                // not only with the next call on that server (rc2 finding B5a).
+                deleter.execute {
+                    try {
+                        Client.deletePendingNow()
+                    } catch (e: RuntimeException) {
+                        Log.e(TAG, "Running pending NFS deletes failed", e)
+                    }
+                }
             }
         }
     }
