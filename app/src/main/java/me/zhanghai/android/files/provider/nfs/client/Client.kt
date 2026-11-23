@@ -81,10 +81,11 @@ internal object Client {
      */
     fun abortSessions() {
         for (mount in table.allMounts()) {
-            mount.stale = true
             if (!NfsTimeouts.abortOnNetworkLoss(mount.authority.host)) {
+                // Loopback does not depend on the lost network: keep it in service.
                 continue
             }
+            mount.stale = true
             if (!mount.destroyLock.tryLock()) {
                 continue
             }
