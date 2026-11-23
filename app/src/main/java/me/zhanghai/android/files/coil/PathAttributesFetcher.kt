@@ -56,9 +56,13 @@ import java.io.Closeable
 import java.io.IOException
 
 class PathAttributesKeyer : Keyer<Pair<Path, BasicFileAttributes>> {
-    override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String {
-        val (path, attributes) = data
-        return "$path:${attributes.lastModifiedInstant.toEpochMilli()}"
+    override fun key(data: Pair<Path, BasicFileAttributes>, options: Options): String =
+        key(data.first, data.second)
+
+    companion object {
+        /** Also the memory cache key of a request without transformations or parameters. */
+        fun key(path: Path, attributes: BasicFileAttributes): String =
+            "$path:${attributes.lastModifiedInstant.toEpochMilli()}"
     }
 }
 

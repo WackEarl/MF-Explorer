@@ -12,6 +12,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
+import coil.imageLoader
 import coil.load
 import coil.size.Size
 import com.davemorrissey.labs.subscaleview.ImageSource
@@ -94,6 +95,9 @@ class ImageViewerAdapter(
                 load(path to imageInfo.attributes) {
                     size(Size.ORIGINAL)
                     fadeIn(context.shortAnimTime)
+                    placeholderMemoryCacheKey(
+                        ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
+                    )
                     listener(
                         onSuccess = { _, _ ->
                             binding.progress.fadeOutUnsafe()
@@ -116,13 +120,14 @@ class ImageViewerAdapter(
                 isVisible = true
                 alpha = 0f
                 setOnImageEventListener(object : DefaultOnImageEventListener() {
+                    // With a preview this comes before the full image has loaded.
                     override fun onReady() {
                         setDoubleTapZoomScale(binding.largeImage.cropScale)
-                        binding.progress.fadeOutUnsafe()
                         binding.largeImage.fadeInUnsafe(true)
                     }
 
                     override fun onImageLoaded() {
+                        binding.progress.fadeOutUnsafe()
                         onPageLoaded(path)
                     }
 
@@ -132,8 +137,37 @@ class ImageViewerAdapter(
                         onPageLoaded(path)
                     }
                 })
-                setImageRestoringSavedState(ImageSource.uri(path.fileProviderUri))
+                val imageSource = ImageSource.uri(path.fileProviderUri)
+                val previewSource = binding.largeImagePreview(path, imageInfo)
+                if (previewSource != null) {
+                    // A preview needs the dimensions of the image.
+                    imageSource.dimensions(imageInfo.width, imageInfo.height)
+                }
+                setImageRestoringSavedState(imageSource, previewSource)
             }
+        }
+    }
+
+    private fun ImageViewerItemBinding.largeImagePreview(
+        path: Path,
+        imageInfo: ImageInfo
+    ): ImageSource? {
+        val key = ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
+        val cached = root.context.imageLoader.memoryCache?.get(key)?.bitmap ?: return null
+        return try {
+            val preview = ThumbnailPlaceholder.toStoredOrientation(
+                cached, imageInfo.largeImageOrientation
+            )
+            // The view recycles a bitmap it was given, but the memory cache owns the cached one.
+            if (preview === cached) {
+                ImageSource.cachedBitmap(preview)
+            } else {
+                ImageSource.bitmap(preview)
+            }
+        } catch (e: Exception) {
+            // Only a placeholder.
+            e.printStackTrace()
+            null
         }
     }
 
