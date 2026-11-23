@@ -1,0 +1,7 @@
+- Faster NFS copies: read-ahead and pipelined writes.
+- NFS thumbnails can stay on disk; exports with &, #, + or % in the path work.
+- Readable NFS error messages, a wrong export is shown at its field.
+- NFS reconnects after airplane mode or a network change and fails fast without network.
+- Partial NFS copies left by a lost connection are removed once the network is back.
+- A folder that failed to list is listed again when reopened.
+- Folder tab fixes for the plus button and new tabs.
