@@ -294,6 +294,34 @@ class ClientSessionTest {
     }
 
     @Test
+    fun deadContextWithAnOpenFileIsDestroyedAndItsHandleFailsWithEio() {
+        val file = openFile()
+        val context = nfs.created.last()
+        Client.abortSessions(emptyList())
+        Client.onNetworkChanged()
+        assertTrue("dead context must not wait for its open file", context in nfs.destroyed)
+
+        try {
+            onIo { Client.pread(root!!, file, ByteArray(16), 0, pipeline = true) }
+            fail("read on a destroyed context")
+        } catch (e: ClientException) {
+            assertEquals(OsConstants.EIO, e.errno)
+        }
+        try {
+            onIo { Client.closeFile(root!!, file, deleteOnClose = false) }
+            fail("close on a destroyed context reports the lost connection")
+        } catch (e: ClientException) {
+            assertEquals(OsConstants.EIO, e.errno)
+        }
+        assertFalse("nothing may pass the handle to libnfs again", file in nfs.closedFiles)
+        assertEquals(emptyList<String>(), nfs.afterDestroy)
+
+        // New calls get a fresh context.
+        onIo { Client.list(root!!) }
+        assertEquals(2, nfs.created.size)
+    }
+
+    @Test
     fun liveRetiredContextKeepsServingItsOpenFileUntilClosed() {
         val file = openFile()
         val context = nfs.created.last()
@@ -307,6 +335,30 @@ class ClientSessionTest {
         onIo { Client.closeFile(root!!, file, deleteOnClose = false) }
         assertTrue(file in nfs.closedFiles)
         assertTrue("last close frees the retired context", context in nfs.destroyed)
+        assertEquals(emptyList<String>(), nfs.afterDestroy)
+    }
+
+    @Test
+    fun transportFailureOnADeadSessionDestroysTheDetachedContext() {
+        val file = openFile()
+        val context = nfs.created.last()
+        Client.onNetworkChanged()
+        // libnfs gave up reconnecting: no session any more.
+        nfs.shutdownSocket(context)
+        try {
+            onIo { Client.pread(root!!, file, ByteArray(16), 0, pipeline = true) }
+            fail("read without a session")
+        } catch (e: ClientException) {
+            assertTrue(e.isTransportFailure())
+        }
+        assertTrue(context in nfs.destroyed)
+        // The close only books the handle.
+        try {
+            onIo { Client.closeFile(root!!, file, deleteOnClose = false) }
+        } catch (e: ClientException) {
+            assertEquals(OsConstants.EIO, e.errno)
+        }
+        assertFalse(file in nfs.closedFiles)
         assertEquals(emptyList<String>(), nfs.afterDestroy)
     }
 }

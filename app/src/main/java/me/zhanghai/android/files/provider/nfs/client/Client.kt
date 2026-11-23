@@ -62,6 +62,14 @@ internal object Client {
          * thread holds [lock] and must not see the context freed under it.
          */
         val destroyLock = ReentrantLock()
+
+        /** [abortSessions] ended its TCP session: its open files cannot be served any more. */
+        @Volatile
+        var aborted: Boolean = false
+
+        /** When it was taken out of service with files still open, for the log. */
+        @Volatile
+        var detachedAtNanos: Long = 0L
     }
 
     interface Path {
@@ -113,6 +121,7 @@ internal object Client {
                     continue
                 }
                 mount.stale = true
+                mount.aborted = true
                 Log.i(TAG, "Network lost, ending the NFS session to ${mount.authority} " +
                     "(open files: ${mount.files})")
                 nfs.shutdownSocket(context)
@@ -145,6 +154,19 @@ internal object Client {
             } finally {
                 mount.lock.unlock()
             }
+        }
+        logRetiredContexts()
+    }
+
+    /** Retired contexts that open files still keep alive, so a leak shows up in the log. */
+    private fun logRetiredContexts() {
+        for (mount in table.allMounts()) {
+            val detachedAt = mount.detachedAtNanos
+            if (!mount.detached || detachedAt == 0L || mount.context == 0L) {
+                continue
+            }
+            Log.w(TAG, "Retired NFS context for ${mount.authority} still alive after " +
+                "${millisSince(detachedAt) / 1000} s (open files: ${mount.files})")
         }
     }
 
@@ -356,10 +378,38 @@ internal object Client {
      * on it, otherwise when its last file is closed.
      */
     private fun retireLocked(mount: Mount) {
-        if (!table.retire(mount)) {
+        if (table.retire(mount)) {
+            destroyLocked(mount)
             return
         }
+        if (mount.detachedAtNanos == 0L) {
+            mount.detachedAtNanos = System.nanoTime()
+        }
+        destroyIfDeadLocked(mount)
+    }
+
+    /**
+     * Whether the TCP session of [mount] is gone for good: ended by [abortSessions], or down
+     * after libnfs gave up reconnecting. [Mount.lock] must be held.
+     */
+    private fun isSessionDeadLocked(mount: Mount): Boolean =
+        mount.aborted || mount.context == 0L || !nfs.sessionUp(mount.context)
+
+    /**
+     * Destroys a detached context whose session is dead instead of keeping it until its last
+     * file is closed, which may only be at process end. Its open files then fail with EIO in
+     * [useExisting], and [closeFile] only books them. libnfs does not free the file handles of
+     * a destroyed context, so their pointers cannot be reused for another handle while a channel
+     * still holds them, and nothing passes them to libnfs again. [Mount.lock] must be held.
+     */
+    private fun destroyIfDeadLocked(mount: Mount): Boolean {
+        if (!mount.alive || !mount.detached || !isSessionDeadLocked(mount)) {
+            return false
+        }
+        Log.w(TAG, "Destroying the dead NFS context for ${mount.authority}; its open files " +
+            "fail until closed (open files: ${mount.files})")
         destroyLocked(mount)
+        return true
     }
 
     private fun destroyLocked(mount: Mount) {
@@ -398,10 +448,21 @@ internal object Client {
             if (!mount.alive || mount.context == 0L) {
                 throw exception(OsConstants.EIO, "NFS connection closed")
             }
-            if (requireSession) {
-                mount.ensureSession()
+            try {
+                if (requireSession) {
+                    mount.ensureSession()
+                }
+                return block(mount)
+            } catch (e: ClientException) {
+                if (e.isTransportFailure()) {
+                    // No new calls on it; and if the session is dead, nothing at all.
+                    mount.stale = true
+                    if (isSessionDeadLocked(mount)) {
+                        retireLocked(mount)
+                    }
+                }
+                throw e
             }
-            return block(mount)
         } finally {
             mount.lock.unlock()
             reap(mount)
@@ -415,7 +476,14 @@ internal object Client {
     private fun reap(mount: Mount) {
         mount.lock.lock()
         try {
-            if (!mount.alive || !table.canDrop(mount)) {
+            if (!mount.alive) {
+                return
+            }
+            // E.g. a call was in progress while abortSessions ended its session.
+            if (mount.files > 0 && destroyIfDeadLocked(mount)) {
+                return
+            }
+            if (!table.canDrop(mount)) {
                 return
             }
             if (mount.detached) {
