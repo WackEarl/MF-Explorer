@@ -30,6 +30,12 @@ internal object NfsNative {
      */
     external fun shutdownSocket(context: Long)
 
+    /**
+     * The local IP address (4 or 16 bytes) of the TCP session of [context], or null without a
+     * session. May run from another thread like [shutdownSocket].
+     */
+    external fun localAddress(context: Long): ByteArray?
+
     external fun mount(
         context: Long,
         host: String,

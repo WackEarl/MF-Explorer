@@ -49,6 +49,45 @@ internal object NfsTimeouts {
      */
     fun abortOnNetworkLoss(host: String): Boolean = !isLoopback(host)
 
+    /**
+     * Whether a lost network ends the session to [host] whose local address is [localAddress]
+     * (null: no session, or unknown). [remainingAddresses] are the addresses of the networks
+     * that are still up, null if they could not be read. Only a session bound to an address
+     * that is gone is ended, or all of them once no network is left: a NAS reached over a
+     * Wi-Fi without internet must not lose its session when mobile data, the default network,
+     * goes away.
+     */
+    fun abortOnNetworkLoss(
+        host: String,
+        localAddress: ByteArray?,
+        remainingAddresses: List<ByteArray>?
+    ): Boolean {
+        if (!abortOnNetworkLoss(host)) {
+            return false
+        }
+        if (localAddress == null || remainingAddresses.isNullOrEmpty()) {
+            return true
+        }
+        val local = unmapIpv4(localAddress)
+        return remainingAddresses.none { unmapIpv4(it).contentEquals(local) }
+    }
+
+    /** ::ffff:a.b.c.d as the 4 bytes of a.b.c.d. */
+    private fun unmapIpv4(address: ByteArray): ByteArray {
+        if (address.size != 16) {
+            return address
+        }
+        for (i in 0 until 10) {
+            if (address[i] != 0.toByte()) {
+                return address
+            }
+        }
+        if (address[10] != 0xFF.toByte() || address[11] != 0xFF.toByte()) {
+            return address
+        }
+        return address.copyOfRange(12, 16)
+    }
+
     private fun isLoopback(host: String): Boolean {
         val bare = host.removePrefix("[").removeSuffix("]").lowercase()
         return bare == "localhost" || bare == "::1" || bare.startsWith("127.")

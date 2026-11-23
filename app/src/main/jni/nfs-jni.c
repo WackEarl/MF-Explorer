@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <time.h>
 
 #include <nfsc/libnfs.h>
@@ -179,6 +180,49 @@ Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_shutdownSocket(JNIE
     if (fd >= 0) {
         shutdown(fd, SHUT_RDWR);
     }
+}
+
+/*
+ * The local address of the TCP session of a context, 4 or 16 bytes, or null without a session.
+ * Like shutdownSocket it only reads the fd, so it may run while another thread uses the context.
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_localAddress(JNIEnv *env,
+                                                                         jclass clazz,
+                                                                         jlong context) {
+    struct sockaddr_storage address;
+    socklen_t length = sizeof(address);
+    const void *bytes;
+    jsize size;
+    jbyteArray result;
+    int fd;
+
+    (void) clazz;
+    if (context == 0) {
+        return NULL;
+    }
+    fd = nfs_get_fd(context_from(context));
+    if (fd < 0) {
+        return NULL;
+    }
+    memset(&address, 0, sizeof(address));
+    if (getsockname(fd, (struct sockaddr *) &address, &length) != 0) {
+        return NULL;
+    }
+    if (address.ss_family == AF_INET) {
+        bytes = &((struct sockaddr_in *) &address)->sin_addr;
+        size = 4;
+    } else if (address.ss_family == AF_INET6) {
+        bytes = &((struct sockaddr_in6 *) &address)->sin6_addr;
+        size = 16;
+    } else {
+        return NULL;
+    }
+    result = (*env)->NewByteArray(env, size);
+    if (result != NULL) {
+        (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte *) bytes);
+    }
+    return result;
 }
 
 JNIEXPORT void JNICALL

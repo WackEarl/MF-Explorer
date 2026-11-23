@@ -8,6 +8,8 @@ package me.zhanghai.android.files.provider.nfs.client
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -94,7 +96,7 @@ internal object NfsNetworkMonitor {
                     override fun onLost(network: Network) {
                         if (newState.onLost(network)) {
                             Log.i(TAG, "Default network lost, dropping idle NFS contexts")
-                            onNetworkChanged(available = false)
+                            onNetworkChanged(available = false, lost = network)
                         }
                     }
                 }
@@ -104,16 +106,64 @@ internal object NfsNetworkMonitor {
             Log.w(TAG, "Cannot watch the default network", e)
             this.connectivityManager = null
             state = NetworkState(true)
+            return
+        }
+        try {
+            // A network that is not the default one can carry a session too, e.g. a NAS on a
+            // Wi-Fi without internet while mobile data is the default network. Its loss ends
+            // only the sessions bound to it.
+            connectivityManager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build(),
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onLost(network: Network) {
+                        worker.execute { abortSessionsOf(network) }
+                    }
+                }
+            )
+        } catch (e: RuntimeException) {
+            // Sessions on a lost non-default network then wait for the RPC timeout as before.
+            Log.w(TAG, "Cannot watch all networks", e)
         }
     }
 
-    private fun onNetworkChanged(available: Boolean) {
-        worker.execute {
-            try {
-                if (!available) {
-                    // First, so that a destroy below does not wait for a dead socket either.
-                    Client.abortSessions()
+    /**
+     * Local addresses of the networks that are up, without [lost], or null if they cannot be
+     * read. The lost network can still be listed right after its onLost.
+     */
+    private fun remainingAddresses(lost: Network?): List<ByteArray>? {
+        val connectivityManager = connectivityManager ?: return null
+        return try {
+            @Suppress("DEPRECATION")
+            connectivityManager.allNetworks
+                .filter { it != lost }
+                .flatMap { network ->
+                    connectivityManager.getLinkProperties(network)?.linkAddresses.orEmpty()
+                        .map { it.address.address }
                 }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Cannot read the remaining networks", e)
+            null
+        }
+    }
+
+    /** Ends the sessions that ran over [lost]. Runs on [worker]. */
+    private fun abortSessionsOf(lost: Network?) {
+        try {
+            Client.abortSessions(remainingAddresses(lost))
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Ending the NFS sessions of a lost network failed", e)
+        }
+    }
+
+    private fun onNetworkChanged(available: Boolean, lost: Network? = null) {
+        worker.execute {
+            if (!available) {
+                // First, so that a destroy below does not wait for a dead socket either.
+                abortSessionsOf(lost)
+            }
+            try {
                 Client.onNetworkChanged()
             } catch (e: RuntimeException) {
                 Log.e(TAG, "Handling a network change failed", e)

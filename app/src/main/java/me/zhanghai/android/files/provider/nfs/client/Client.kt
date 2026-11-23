@@ -74,28 +74,39 @@ internal object Client {
     }
 
     /**
-     * The default network is gone. Ends the TCP sessions of all contexts, also those that only
-     * open files still use, so calls blocked on them fail now instead of after the RPC timeout:
-     * a copy that lost the network showed its error after 32 s instead of 2 s (rc2 finding B5).
-     * Does not wait for the mount locks; a context that is being destroyed is skipped.
+     * A network is gone. Ends the TCP sessions that ran over it, also those that only open files
+     * still use, so calls blocked on them fail now instead of after the RPC timeout: a copy that
+     * lost the network showed its error after 32 s instead of 2 s (rc2 finding B5).
+     *
+     * [remainingAddresses] are the local addresses of the networks that are still up, or null if
+     * unknown. A session whose local address is still among them is kept, see
+     * [NfsTimeouts.abortOnNetworkLoss]. Does not wait for the mount locks; a context that is being
+     * destroyed is skipped.
      */
-    fun abortSessions() {
+    fun abortSessions(remainingAddresses: List<ByteArray>?) {
         for (mount in table.allMounts()) {
             if (!NfsTimeouts.abortOnNetworkLoss(mount.authority.host)) {
                 // Loopback does not depend on the lost network: keep it in service.
                 continue
             }
-            mount.stale = true
             if (!mount.destroyLock.tryLock()) {
                 continue
             }
             try {
                 val context = mount.context
-                if (context != 0L) {
-                    Log.i(TAG, "Network lost, ending the NFS session to ${mount.authority} " +
-                        "(open files: ${mount.files})")
-                    NfsNative.shutdownSocket(context)
+                if (context == 0L) {
+                    continue
                 }
+                val localAddress = NfsNative.localAddress(context)
+                if (!NfsTimeouts.abortOnNetworkLoss(
+                        mount.authority.host, localAddress, remainingAddresses
+                    )) {
+                    continue
+                }
+                mount.stale = true
+                Log.i(TAG, "Network lost, ending the NFS session to ${mount.authority} " +
+                    "(open files: ${mount.files})")
+                NfsNative.shutdownSocket(context)
             } finally {
                 mount.destroyLock.unlock()
             }
