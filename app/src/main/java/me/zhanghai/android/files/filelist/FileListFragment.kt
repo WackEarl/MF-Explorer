@@ -782,8 +782,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 viewModel.setSortDirectoriesFirst(!menuBinding.sortDirectoriesFirstItem.isChecked)
                 true
             }
-            R.id.action_view_sort_path_specific -> {
-                viewModel.isViewSortPathSpecific = !menuBinding.viewSortPathSpecificItem.isChecked
+            R.id.action_reset_folder_view_sort -> {
+                viewModel.isViewSortPathSpecific = false
+                true
+            }
+            R.id.action_use_view_sort_as_default -> {
+                viewModel.useCurrentViewSortAsDefault()
                 true
             }
             R.id.action_new_task -> {
@@ -997,7 +1001,7 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         checkedSortByItem.isChecked = true
         menuBinding.sortOrderAscendingItem.isChecked = sortOptions.order == Order.ASCENDING
         menuBinding.sortDirectoriesFirstItem.isChecked = sortOptions.isDirectoriesFirst
-        menuBinding.viewSortPathSpecificItem.isChecked = viewModel.isViewSortPathSpecific
+        menuBinding.resetFolderViewSortItem.isVisible = viewModel.isViewSortPathSpecific
     }
 
     private fun navigateUp() {
@@ -2040,7 +2044,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         val sortByLastModifiedItem: MenuItem,
         val sortOrderAscendingItem: MenuItem,
         val sortDirectoriesFirstItem: MenuItem,
-        val viewSortPathSpecificItem: MenuItem,
+        val resetFolderViewSortItem: MenuItem,
+        val useViewSortAsDefaultItem: MenuItem,
         val selectAllItem: MenuItem,
         val showHiddenFilesItem: MenuItem,
         val newTabItem: MenuItem
@@ -2059,7 +2064,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     menu.findItem(R.id.action_sort_by_last_modified),
                     menu.findItem(R.id.action_sort_order_ascending),
                     menu.findItem(R.id.action_sort_directories_first),
-                    menu.findItem(R.id.action_view_sort_path_specific),
+                    menu.findItem(R.id.action_reset_folder_view_sort),
+                    menu.findItem(R.id.action_use_view_sort_as_default),
                     menu.findItem(R.id.action_select_all),
                     menu.findItem(R.id.action_show_hidden_files),
                     menu.findItem(R.id.action_new_task)

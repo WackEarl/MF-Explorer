@@ -12,6 +12,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import java8.nio.file.Path
 import me.zhanghai.android.files.file.FileItem
+import me.zhanghai.android.files.settings.Settings
 import me.zhanghai.android.files.filelist.FileSortOptions.By
 import me.zhanghai.android.files.filelist.FileSortOptions.Order
 import me.zhanghai.android.files.provider.archive.archiveRefresh
@@ -275,6 +276,11 @@ class FileListViewModel : ViewModel() {
         set(value) {
             _viewSortPathSpecificLiveData.putValue(value)
         }
+
+    fun useCurrentViewSortAsDefault() {
+        Settings.FILE_LIST_VIEW_TYPE.putValue(viewType)
+        Settings.FILE_LIST_SORT_OPTIONS.putValue(sortOptions)
+    }
 
     private val _pickOptionsLiveData = MutableLiveData<PickOptions?>()
     val pickOptionsLiveData: LiveData<PickOptions?>

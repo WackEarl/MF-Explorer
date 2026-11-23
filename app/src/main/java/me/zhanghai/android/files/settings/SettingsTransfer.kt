@@ -8,6 +8,7 @@ package me.zhanghai.android.files.settings
 import android.content.SharedPreferences
 import android.net.Uri
 import me.zhanghai.android.files.app.application
+import me.zhanghai.android.files.app.migratePathSettingsKeys
 import me.zhanghai.android.files.compat.PreferenceManagerCompat
 import me.zhanghai.android.files.provider.sftp.client.HostKeys
 import org.json.JSONException
@@ -50,6 +51,8 @@ object SettingsTransfer {
         val json = validate(text)
         putAll(defaultPreferences(), decodePreferences(json.getJSONObject("preferences")))
         putAll(pathPreferences(), decodePreferences(json.getJSONObject("pathPreferences")))
+        // A file exported from 2.1.7 still has plaintext path suffixes.
+        migratePathSettingsKeys()
         HostKeys.replaceText(
             if (json.isNull("sftpHostKeys")) null else json.getString("sftpHostKeys")
         )

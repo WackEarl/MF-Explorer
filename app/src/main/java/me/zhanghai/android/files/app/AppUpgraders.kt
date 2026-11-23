@@ -35,6 +35,7 @@ import me.zhanghai.android.files.provider.linux.LinuxFileSystem
 import me.zhanghai.android.files.provider.root.RootStrategy
 import me.zhanghai.android.files.provider.sftp.SftpFileSystem
 import me.zhanghai.android.files.provider.smb.SmbFileSystem
+import me.zhanghai.android.files.settings.PathSettingsKeys
 import me.zhanghai.android.files.storage.DocumentTree
 import me.zhanghai.android.files.storage.FileSystemRoot
 import me.zhanghai.android.files.storage.PrimaryStorageVolume
@@ -630,3 +631,12 @@ private fun readWriteLengthPrefixedValue(oldParcel: Parcel, newParcel: Parcel, b
         newParcel.setDataPosition(endPosition)
     }
 }
+
+internal fun migratePathSettingsKeys() {
+    PathSettingsKeys.migrateLegacyKeys(
+        pathSharedPreferences,
+        application.getString(R.string.pref_key_file_list_sort_options),
+        application.getString(R.string.pref_key_file_list_view_type)
+    )
+}
+
