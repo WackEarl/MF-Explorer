@@ -20,7 +20,7 @@ For each release candidate:
 - **Device:** Unraid emulator AVD `nexus_4_14.0` (API 34).
 - **Start and stop:** Cody starts and stops the emulator himself via test-container, not via Homey.
   - Before starting, check `locks/emulator.md` and `locks/agent-device.md` on botshare and mark them taken (see #60).
-  - After start, wait about 2 minutes. Do not restart `agent-device-mcp`.
+  - `agent-device-mcp` keeps looking for the emulator on its own; no fixed wait or restart needed.
   - Export logcat **before** stopping the emulator.
   - After stopping, set both locks back to free.
 - **Share:** NFS share **mfx-nfstest** only. Do not mount or open any other share.
@@ -127,7 +127,7 @@ tests/mf-explorer/<VERSION>/
   logcat excerpts and android-log export paths
 ```
 
-If the botshare hub can only write text, say so in `RESULTS.md`, still store `RESULTS.md` and the log excerpts there, and keep the screenshots on the tester machine with a path noted in the result.
+Save screenshots directly with agent-device: `screenshot path=/botshare/tests/mf-explorer/<VERSION>/<name>.png`.
 
 android-log exports stay under the usual android-log export path; name that path in `RESULTS.md`. Export logcat before stopping the emulator.
 
