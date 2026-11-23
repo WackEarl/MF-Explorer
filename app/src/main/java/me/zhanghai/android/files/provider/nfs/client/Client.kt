@@ -273,7 +273,7 @@ internal object Client {
      * target. [Mount.lock] must be held.
      */
     private fun deletePendingLocked(mount: Mount) {
-        incompleteFiles.drain(mount.authority) { remote, path, maxSize ->
+        incompleteFiles.drain(mount.authority) { remote, path, maxSize, stillPending ->
             val remoteBytes = remote.borrowBytes()
             val name = path ?: remote
             val values = NfsNative.stat(mount.context, remoteBytes, true)
@@ -288,6 +288,12 @@ internal object Client {
             val stat = NfsStat(values)
             if (!IncompleteFiles.isStillOurs(OsConstants.S_ISREG(stat.mode), stat.size, maxSize)) {
                 Log.i(TAG, "Not deleting $name later: it changed since the failed write")
+                return@drain IncompleteFiles.Outcome.DONE
+            }
+            // A create, mkdir or rename of this name forgets the entry under this same mount
+            // lock, so nothing can take the name over between this check and the unlink.
+            if (!stillPending()) {
+                Log.i(TAG, "Not deleting $name later: a new file of that name was written")
                 return@drain IncompleteFiles.Outcome.DONE
             }
             if (NfsNative.unlink(mount.context, remoteBytes) < 0) {
@@ -313,6 +319,12 @@ internal object Client {
         incompleteFiles.markIncomplete(path.authority, ByteString(path.remoteBytes), path, maxSize)
     }
 
+    /**
+     * A new file of that name was created, or it was renamed or replaced, so a pending delete of
+     * it must not run any more. Called with [Mount.lock] held, right after the call that took
+     * the name over and before the lock is released: the pending deletes also run under it
+     * ([deletePendingLocked]), and must never see the new file as the old partial one.
+     */
     private fun forgetIncomplete(path: NfsPath) {
         incompleteFiles.forget(path.authority, ByteString(path.remoteBytes))
     }
@@ -495,8 +507,8 @@ internal object Client {
     fun mkdir(path: NfsPath, mode: Int) {
         use(path.authority) { mount ->
             check(mount.context, NfsNative.mkdir(mount.context, path.remoteBytes, mode), path.toString())
+            forgetIncomplete(path)
         }
-        forgetIncomplete(path)
         LocalWatchService.onEntryCreated(path)
     }
 
@@ -530,9 +542,9 @@ internal object Client {
                 NfsNative.rename(mount.context, source.remoteBytes, target.remoteBytes),
                 source.toString()
             )
+            forgetIncomplete(source)
+            forgetIncomplete(target)
         }
-        forgetIncomplete(source)
-        forgetIncomplete(target)
         LocalWatchService.onEntryDeleted(source)
         LocalWatchService.onEntryCreated(target)
     }
@@ -608,11 +620,13 @@ internal object Client {
             }
             mount.files++
             table.addHandle(opened, mount)
+            if (flags and OsConstants.O_CREAT != 0) {
+                // A new writer owns the name now. Its own failure marks it again.
+                forgetIncomplete(path)
+            }
             opened
         }
         if (flags and OsConstants.O_CREAT != 0) {
-            // A new writer owns the name now. Its own failure marks it again.
-            forgetIncomplete(path)
             LocalWatchService.onEntryCreated(path)
         }
         return FileByteChannel(path, file, append, deleteOnClose, pipeline)
