@@ -1,0 +1,5 @@
+- NFS works again after airplane mode or a network change, even while a file is still open (#40, #41).
+- An NFS copy that loses the network fails at once instead of after about 30 s (#40, #41).
+- A partial NFS copy is removed as soon as the network is back, and is no longer listed meanwhile (#40, #41).
+- A new folder tab is scrolled into view after "+" (#40, #41).
+- The replace dialog names the NFS share instead of "null" when pasting into its root (#40, #41).

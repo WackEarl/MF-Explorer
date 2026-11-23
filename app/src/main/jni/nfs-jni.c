@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <time.h>
 
 #include <nfsc/libnfs.h>
@@ -153,6 +154,76 @@ static int writes_close(struct nfs_context *nfs, struct nfsfh *fh);
 
 /* libnfs-private.h. Lets a deferred write error carry its own text. */
 void nfs_set_error(struct nfs_context *nfs, char *error_string, ...);
+
+/*
+ * Called from another thread than the one using the context, which may be
+ * blocked in poll() for an RPC timeout. shutdown() only touches the socket:
+ * the user's poll() wakes up with POLLHUP and libnfs reconnects, which fails
+ * at once without a network, so every waiting call ends now instead of after
+ * the RPC timeout (rc2 finding B5). The Java side keeps the context from
+ * being destroyed meanwhile. libnfs can still close the fd in between; the
+ * number is only reused if another socket is opened in that window, and the
+ * call only happens when the network is already gone.
+ */
+JNIEXPORT void JNICALL
+Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_shutdownSocket(JNIEnv *env,
+                                                                           jclass clazz,
+                                                                           jlong context) {
+    int fd;
+
+    (void) env;
+    (void) clazz;
+    if (context == 0) {
+        return;
+    }
+    fd = nfs_get_fd(context_from(context));
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+    }
+}
+
+/*
+ * The local address of the TCP session of a context, 4 or 16 bytes, or null without a session.
+ * Like shutdownSocket it only reads the fd, so it may run while another thread uses the context.
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_localAddress(JNIEnv *env,
+                                                                         jclass clazz,
+                                                                         jlong context) {
+    struct sockaddr_storage address;
+    socklen_t length = sizeof(address);
+    const void *bytes;
+    jsize size;
+    jbyteArray result;
+    int fd;
+
+    (void) clazz;
+    if (context == 0) {
+        return NULL;
+    }
+    fd = nfs_get_fd(context_from(context));
+    if (fd < 0) {
+        return NULL;
+    }
+    memset(&address, 0, sizeof(address));
+    if (getsockname(fd, (struct sockaddr *) &address, &length) != 0) {
+        return NULL;
+    }
+    if (address.ss_family == AF_INET) {
+        bytes = &((struct sockaddr_in *) &address)->sin_addr;
+        size = 4;
+    } else if (address.ss_family == AF_INET6) {
+        bytes = &((struct sockaddr_in6 *) &address)->sin6_addr;
+        size = 16;
+    } else {
+        return NULL;
+    }
+    result = (*env)->NewByteArray(env, size);
+    if (result != NULL) {
+        (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte *) bytes);
+    }
+    return result;
+}
 
 JNIEXPORT void JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_destroy(JNIEnv *env, jclass clazz,

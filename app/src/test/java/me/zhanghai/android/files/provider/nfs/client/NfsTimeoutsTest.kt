@@ -69,4 +69,53 @@ class NfsTimeoutsTest {
             nfsErrorKind(0, "Network is unreachable")
         )
     }
+
+    @Test
+    fun lostNetworkEndsSessionsExceptOnThisDevice() {
+        // rc2 B5: a copy that lost the network waited for the RPC timeout before it failed.
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("192.168.0.10"))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.local"))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("[fe80::1]"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("127.0.0.1"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("[::1]"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("localhost"))
+    }
+
+    private fun ip(vararg bytes: Int) = ByteArray(bytes.size) { bytes[it].toByte() }
+
+    private val wifi = ip(192, 0, 2, 20)
+    private val mobile = ip(198, 51, 100, 7)
+
+    @Test
+    fun lostMobileDataKeepsTheSessionOverWifiWithoutInternet() {
+        // NAS on a Wi-Fi without internet, mobile data is the default network and goes away.
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("nas.example", wifi, listOf(wifi)))
+    }
+
+    @Test
+    fun lostWifiEndsTheSessionBoundToIt() {
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.example", wifi, listOf(mobile)))
+    }
+
+    @Test
+    fun noNetworkLeftOrUnknownEndsAllSessions() {
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.example", wifi, emptyList()))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.example", wifi, null))
+        // No session, or its address could not be read.
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.example", null, listOf(wifi)))
+    }
+
+    @Test
+    fun loopbackSessionIsNeverEnded() {
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("127.0.0.1", null, emptyList()))
+    }
+
+    @Test
+    fun ipv4MappedLocalAddressMatchesItsNetwork() {
+        val mapped = ip(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 192, 0, 2, 20)
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("nas.example", mapped, listOf(wifi)))
+        val v6 = ip(0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("nas.example", v6, listOf(mobile, v6.copyOf())))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.example", v6, listOf(mobile)))
+    }
 }

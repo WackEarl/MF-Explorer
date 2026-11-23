@@ -20,7 +20,7 @@ class IncompleteFilesTest {
 
     private fun drain(group: String, outcome: (String) -> Outcome): List<String> {
         val seen = mutableListOf<String>()
-        files.drain(group) { _, path, _ ->
+        files.drain(group) { _, path, _, _ ->
             seen += path!!
             outcome(path)
         }
@@ -87,7 +87,7 @@ class IncompleteFilesTest {
         files.markIncomplete("nas", "/a", "a", 1_048_576)
         files.deferDelete("nas", "/a")
         var maxSize = 0L
-        files.drain("nas") { _, _, size ->
+        files.drain("nas") { _, _, size, _ ->
             maxSize = size
             Outcome.DONE
         }
@@ -127,7 +127,7 @@ class IncompleteFilesTest {
         restarted.restorePending(saved)
         assertTrue(restarted.hasPending())
         val seen = mutableListOf<Triple<String, String?, Long>>()
-        restarted.drain("nas") { key, path, maxSize ->
+        restarted.drain("nas") { key, path, maxSize, _ ->
             seen += Triple(key, path, maxSize)
             Outcome.DONE
         }
@@ -146,7 +146,90 @@ class IncompleteFilesTest {
         assertEquals(2, saved.size)
         files.forget("nas", "a")
         assertEquals(listOf("b"), saved.map { it.key })
-        files.drain("nas") { _, _, _ -> Outcome.DONE }
+        files.drain("nas") { _, _, _, _ -> Outcome.DONE }
         assertEquals(emptyList<IncompleteFiles.Pending<String, String>>(), saved)
+    }
+
+    @Test
+    fun listingHidesAPendingDeleteThatCouldNotRunYet() {
+        // rc2 B5a: after the network came back, the reload still showed c100.zip with 0 B.
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        assertTrue(files.deferDelete("nas", "/b5/c100.zip"))
+        assertEquals(listOf("nas"), files.pendingGroups())
+
+        val listed = listOf("/b5/c100.zip", "/b5/other.zip")
+        assertEquals(listOf("/b5/other.zip"), files.withoutPending("nas", listed) { it })
+        // Same path on another server is a different file.
+        assertEquals(listed, files.withoutPending("other", listed) { it })
+    }
+
+    @Test
+    fun listingShowsTheFileAgainOnceItIsTakenOver() {
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        files.deferDelete("nas", "/b5/c100.zip")
+        // A new copy writes the same name.
+        files.forget("nas", "/b5/c100.zip")
+        val listed = listOf("/b5/c100.zip")
+        assertEquals(listed, files.withoutPending("nas", listed) { it })
+        assertTrue(files.pendingGroups().isEmpty())
+    }
+
+    @Test
+    fun listingIsUntouchedWithoutPendingDeletes() {
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        val listed = listOf("/b5/c100.zip")
+        assertEquals(listed, files.withoutPending("nas", listed) { it })
+    }
+
+    @Test
+    fun drainDoesNotDeleteANewFileOfTheSameName() {
+        // Review of 907fafbb: the copy target c100.zip is deleted while offline, the delete is
+        // pending. The network is back, a retried copy creates c100.zip again (0 B), and the
+        // drain must not unlink that new file.
+        val server = mutableSetOf("/b5/c100.zip")
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 7_340_032)
+        assertTrue(files.deferDelete("nas", "/b5/c100.zip"))
+        files.drain("nas") { key, _, maxSize, stillPending ->
+            // stat: a regular file of 0 B, as small as the old partial one.
+            assertTrue(IncompleteFiles.isStillOurs(true, 0, maxSize))
+            // The new create of the same name lands in between and takes the name over.
+            files.forget("nas", "/b5/c100.zip")
+            if (stillPending()) {
+                server.remove(key)
+            }
+            Outcome.DONE
+        }
+        assertEquals(setOf("/b5/c100.zip"), server)
+        assertFalse(files.hasPending())
+    }
+
+    @Test
+    fun drainSkipsAnEntryForgottenBeforeItsTurn() {
+        val deleted = mutableListOf<String>()
+        for (name in listOf("a", "b")) {
+            files.markIncomplete("nas", name, name, 1)
+            files.deferDelete("nas", name)
+        }
+        files.drain("nas") { key, _, _, stillPending ->
+            // While a is deleted, a new b is created.
+            if (key == "a") files.forget("nas", "b")
+            if (stillPending()) deleted += key
+            Outcome.DONE
+        }
+        assertEquals(listOf("a"), deleted)
+        assertFalse(files.hasPending())
+    }
+
+    @Test
+    fun drainStillDeletesAnUntouchedPendingFile() {
+        files.markIncomplete("nas", "/b5/c100.zip", "/b5/c100.zip", 1024)
+        files.deferDelete("nas", "/b5/c100.zip")
+        var stillPendingAtUnlink = false
+        files.drain("nas") { _, _, _, stillPending ->
+            stillPendingAtUnlink = stillPending()
+            Outcome.DONE
+        }
+        assertTrue(stillPendingAtUnlink)
+        assertFalse(files.hasPending())
     }
 }

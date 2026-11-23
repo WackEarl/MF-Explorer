@@ -38,6 +38,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.view.GravityCompat
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
 import androidx.core.view.updatePaddingRelative
 import androidx.drawerlayout.widget.DrawerLayout
@@ -658,6 +659,11 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                     }
                     tabLayout.addTab(tab, index == tabs.selectedIndex)
                 }
+                // The rebuilt bar starts scrolled to the start; bring the selected tab, e.g. the
+                // one "+" just opened, into view once the new tabs are laid out. A post could
+                // run before that layout pass and find the new tab with width 0.
+                val selectedIndex = tabs.selectedIndex
+                tabLayout.doOnPreDraw { tabLayout.scrollTabIntoView(selectedIndex) }
             } else {
                 val showClose = tabs.ids.size > 1
                 for (index in tabs.ids.indices) {

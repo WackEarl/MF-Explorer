@@ -85,16 +85,50 @@ internal class IncompleteFiles<G : Any, K : Any, P : Any>(private val capacity: 
 
     fun hasPending(): Boolean = pendingCount > 0
 
+    /** Servers with pending deletes, in the order they failed. */
+    @Synchronized
+    fun pendingGroups(): List<G> = pending.keys.map { it.first }.distinct()
+
+    /**
+     * [items] without the files of [group] that are still waiting for their delete, so a
+     * listing does not show a partial file that will be removed (rc2 finding B5a).
+     */
+    fun <T> withoutPending(group: G, items: List<T>, keyOf: (T) -> K): List<T> {
+        if (!hasPending()) {
+            return items
+        }
+        val keys = synchronized(this) {
+            pending.keys.filter { it.first == group }.mapTo(HashSet()) { it.second }
+        }
+        if (keys.isEmpty()) {
+            return items
+        }
+        return items.filterNot { keyOf(it) in keys }
+    }
+
     /**
      * Runs [delete] for each pending file of [group], in the order they failed. Stops at the
      * first [Outcome.RETRY] and keeps that entry and the ones after it.
+     *
+     * [delete] gets `stillPending`, which tells under this object's lock whether the entry it
+     * runs for is still the pending one. It must be asked right before the actual unlink: a new
+     * writer of the same name ([forget]) may have taken the name over since the snapshot (rc2
+     * review of B5a). The caller serializes [forget] of the same group with the unlink, e.g. by
+     * holding the lock of that server's connection for both.
      */
-    fun drain(group: G, delete: (key: K, path: P?, maxSize: Long) -> Outcome) {
+    fun drain(
+        group: G,
+        delete: (key: K, path: P?, maxSize: Long, stillPending: () -> Boolean) -> Outcome
+    ) {
         val entries = synchronized(this) {
             pending.entries.filter { it.key.first == group }.map { it.key to it.value }
         }
         for ((id, entry) in entries) {
-            val outcome = delete(id.second, entry.path, entry.maxSize)
+            val stillPending = { synchronized(this) { pending[id] === entry } }
+            if (!stillPending()) {
+                continue
+            }
+            val outcome = delete(id.second, entry.path, entry.maxSize, stillPending)
             if (outcome == Outcome.RETRY) {
                 return
             }

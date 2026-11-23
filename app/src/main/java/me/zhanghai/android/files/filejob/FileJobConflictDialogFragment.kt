@@ -24,6 +24,7 @@ import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import coil.dispose
 import coil.load
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java8.nio.file.Path
 import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
@@ -37,8 +38,10 @@ import me.zhanghai.android.files.file.formatShort
 import me.zhanghai.android.files.file.iconRes
 import me.zhanghai.android.files.file.lastModifiedInstant
 import me.zhanghai.android.files.filelist.appDirectoryPackageName
+import me.zhanghai.android.files.filelist.name
 import me.zhanghai.android.files.filelist.supportsThumbnail
 import me.zhanghai.android.files.provider.common.isEncrypted
+import me.zhanghai.android.files.provider.nfs.nfsAuthority
 import me.zhanghai.android.files.util.ParcelableArgs
 import me.zhanghai.android.files.util.ParcelableState
 import me.zhanghai.android.files.util.RemoteCallback
@@ -304,8 +307,16 @@ class FileJobConflictDialogFragment : AppCompatDialogFragment() {
             } else {
                 R.string.file_job_replace_message_format
             }
-            return context.getString(messageRes, targetFile.path.parent.fileName)
+            return context.getString(messageRes, directoryName(targetFile.path.parent))
         }
+
+        /**
+         * The folder name for the message. The root of a file system has no file name, which
+         * showed as "null" in the root of an NFS share (rc2 finding K1): use the server and
+         * export there, as the breadcrumb does, and "/" for other roots.
+         */
+        internal fun directoryName(directory: Path): String =
+            directory.fileName?.toString() ?: directory.nfsAuthority?.toString() ?: directory.name
 
         private fun isMerge(sourceFile: FileItem, targetFile: FileItem): Boolean {
             val sourceIsDirectory = sourceFile.attributesNoFollowLinks.isDirectory

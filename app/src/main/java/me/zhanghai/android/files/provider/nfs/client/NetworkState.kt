@@ -29,6 +29,21 @@ internal class NetworkState(initiallyAvailable: Boolean) {
         return previous != null && previous != network || previous == null && !wasAvailable
     }
 
+    /**
+     * Android reports [active] as the active network although the state is offline, e.g. after
+     * a missed callback. Returns true if the state was offline and existing contexts should be
+     * dropped.
+     */
+    @Synchronized
+    fun confirm(active: Any?): Boolean {
+        if (isAvailable || active == null) {
+            return false
+        }
+        current = active
+        isAvailable = true
+        return true
+    }
+
     @Synchronized
     fun onLost(network: Any): Boolean {
         if (current != null && current != network) {
