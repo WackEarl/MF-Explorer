@@ -737,7 +737,14 @@ internal object Client {
         }
 
     internal fun closeFile(path: Path, file: Long, deleteOnClose: Boolean) {
-        useExisting(file, requireSession = false) { mount ->
+        checkThread()
+        val mount = table.mountFor(file)
+            ?: throw exception(OsConstants.EIO, "NFS connection closed")
+        mount.lock.lock()
+        try {
+            if (!mount.alive || mount.context == 0L) {
+                throw exception(OsConstants.EIO, "NFS connection closed")
+            }
             val closeRc = NfsNative.closeFile(mount.context, file)
             val closeErrno = NfsNative.takeErrno()
             val closeMessage = NfsNative.getError(mount.context)
@@ -746,16 +753,20 @@ internal object Client {
             } else {
                 0
             }
-            if (mount.files > 0) {
-                mount.files--
-            }
-            table.removeHandle(file, mount)
             if (closeRc < 0) {
                 throw exception(closeErrno, closeMessage)
             }
             if (deleteOnClose) {
                 check(mount.context, unlinkRc, "")
             }
+        } finally {
+            // The handle is gone whether the close reached the server or the context is dead
+            // already. Otherwise a detached context would never be freed.
+            if (table.removeHandle(file, mount) && mount.files > 0) {
+                mount.files--
+            }
+            mount.lock.unlock()
+            reap(mount)
         }
         if (deleteOnClose) {
             LocalWatchService.onEntryDeleted(path as java8.nio.file.Path)

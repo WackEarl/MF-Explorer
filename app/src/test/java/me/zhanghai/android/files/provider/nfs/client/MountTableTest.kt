@@ -26,9 +26,11 @@ class MountTableTest {
         table.addHandle(file, this)
     }
 
+    /** As Client.closeFile books it, also when the close itself failed. */
     private fun FakeMount.close(file: Long) {
-        files--
-        table.removeHandle(file, this)
+        if (table.removeHandle(file, this) && files > 0) {
+            files--
+        }
     }
 
     @Test
@@ -139,5 +141,20 @@ class MountTableTest {
         assertEquals(2, all.size)
         assertTrue(all.contains(old))
         assertTrue(all.contains(fresh))
+    }
+
+    @Test
+    fun secondCloseOfTheSameHandleIsCountedOnce() {
+        val old = table.install(FakeMount("nas"))
+        old.open(1L)
+        old.open(2L)
+        table.retire(old)
+        old.close(1L)
+        // A close that threw is retried by the channel, or reaches here twice.
+        old.close(1L)
+        assertEquals(1, old.files)
+        assertFalse("handle 2 is still open", table.canDrop(old))
+        old.close(2L)
+        assertTrue(table.canDrop(old))
     }
 }

@@ -78,13 +78,16 @@ internal class MountTable<A : Any, M : MountTable.State<A>> {
 
     /**
      * Only if [file] still belongs to [mount]: once closed, the same pointer value can already
-     * be a handle another context opened.
+     * be a handle another context opened. Returns true if it was removed, so a second close
+     * of the same handle does not count it twice.
      */
     @Synchronized
-    fun removeHandle(file: Long, mount: M) {
-        if (handles[file] === mount) {
-            handles.remove(file)
+    fun removeHandle(file: Long, mount: M): Boolean {
+        if (handles[file] !== mount) {
+            return false
         }
+        handles.remove(file)
+        return true
     }
 
     /** The context that opened [file]. A handle is only valid there. */
