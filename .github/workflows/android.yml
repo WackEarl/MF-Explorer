@@ -1,6 +1,8 @@
 name: Android CI
 
-on: [push]
+on:
+  push:
+  pull_request:
 
 jobs:
   build:
@@ -19,8 +21,20 @@ jobs:
         java-version: '21'
     - name: Run host NFS pipeline tests
       run: ./gradlew :app:testPipeDepth
+    - name: Run unit tests
+      run: ./gradlew testDebugUnitTest
     - name: Build with Gradle
       run: ./gradlew assembleDebug lintVitalRelease
+    - name: Upload unit test report
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-test-report
+        path: |
+          app/build/reports/tests/testDebugUnitTest/
+          app/build/test-results/testDebugUnitTest/
+        if-no-files-found: ignore
+        retention-days: 10
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
