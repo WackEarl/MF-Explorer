@@ -8,6 +8,7 @@ package me.zhanghai.android.files.viewer.image
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import java8.nio.file.attribute.BasicFileAttributes
 import me.zhanghai.android.files.file.asMimeType
+import me.zhanghai.android.files.testing.CountingSource
 import me.zhanghai.android.files.testing.TestJpegs
 import me.zhanghai.android.files.testing.countingSource
 import org.junit.Assert.assertEquals
@@ -20,7 +21,10 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.lang.reflect.Proxy
 
-/** Issue #54: bounds and EXIF orientation come from one open and the header bytes only. */
+/**
+ * Issue #54: a JPEG's bounds and EXIF orientation come from one open and the header bytes only.
+ * Other formats must not be peeked at into memory.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -35,25 +39,55 @@ class ImageInfoTest {
         val main = TestJpegs.encode(TestJpegs.quadrants(4400, 2000, noise = true))
         val jpeg = TestJpegs.withExif(main, orientation = 6, thumbnail = null)
         assertTrue("test image too small: ${jpeg.size}", jpeg.size > 2 * 1024 * 1024)
-        val (counting, source) = jpeg.countingSource()
+        val opened = mutableListOf<CountingSource>()
 
-        val info = source.use { readImageInfo(it, attributes, "image/jpeg".asMimeType()) }
+        val info = readImageInfo(attributes, "image/jpeg".asMimeType()) {
+            jpeg.countingSource().also { opened += it.first }.second
+        }
 
         assertEquals(4400, info.width)
         assertEquals(2000, info.height)
         assertTrue(info.shouldUseLargeImageView)
         assertEquals(SubsamplingScaleImageView.ORIENTATION_90, info.largeImageOrientation.rotation)
         assertFalse(info.largeImageOrientation.isMirrored)
-        assertTrue("read ${counting.bytesRead} bytes", counting.bytesRead <= 64 * 1024)
+        assertEquals(1, opened.size)
+        assertTrue("read ${opened[0].bytesRead} bytes", opened[0].bytesRead <= 64 * 1024)
+        assertTrue(opened[0].isClosed)
+    }
+
+    @Test
+    fun webpWithExifAtTheEndIsNotPeekedIntoMemory() {
+        val webp = TestJpegs.webpWithExifAtEnd(
+            TestJpegs.quadrants(4400, 2000, noise = true), orientation = 8
+        )
+        assertTrue("test image too small: ${webp.size}", webp.size > 2 * 1024 * 1024)
+        val opened = mutableListOf<CountingSource>()
+
+        val info = readImageInfo(attributes, "image/webp".asMimeType()) {
+            webp.countingSource().also { opened += it.first }.second
+        }
+
+        assertEquals("image/webp", info.mimeType.value)
+        assertEquals(4400, info.width)
+        assertTrue(info.shouldUseLargeImageView)
+        assertEquals(SubsamplingScaleImageView.ORIENTATION_270, info.largeImageOrientation.rotation)
+        // One open per read and no peeking: both reads stream through their own source, so
+        // the app never holds the file in a peek buffer. The platform WebP decoder itself
+        // reads the whole file even for its bounds, as it did before.
+        assertEquals(2, opened.size)
+        assertTrue(opened.all { it.isClosed })
+        for (source in opened) {
+            assertTrue("buffered ${source.maxBuffered} bytes", source.maxBuffered <= 256 * 1024)
+        }
     }
 
     @Test
     fun normalImageSkipsTheOrientation() {
         val main = TestJpegs.encode(TestJpegs.quadrants(400, 300))
         val jpeg = TestJpegs.withExif(main, orientation = 6, thumbnail = null)
-        val (_, source) = jpeg.countingSource()
-
-        val info = source.use { readImageInfo(it, attributes, "image/jpeg".asMimeType()) }
+        val info = readImageInfo(attributes, "image/jpeg".asMimeType()) {
+            jpeg.countingSource().second
+        }
 
         assertFalse(info.shouldUseLargeImageView)
         assertEquals(SubsamplingScaleImageView.ORIENTATION_0, info.largeImageOrientation.rotation)

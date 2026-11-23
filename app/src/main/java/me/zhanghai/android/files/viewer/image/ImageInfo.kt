@@ -54,25 +54,43 @@ internal class ImageInfo(
     }
 }
 
-/** Opens [this] once for its bounds and, for the large image view, its EXIF orientation. */
+/** Reads the bounds and, for the large image view, the EXIF orientation of [this]. */
 @Throws(IOException::class)
 internal fun Path.loadImageInfo(): ImageInfo {
     val attributes = readAttributes(BasicFileAttributes::class.java)
     val mimeType = AndroidFileTypeDetector.getMimeType(this, attributes).asMimeType()
-    return newInputStream().source().buffer().use { readImageInfo(it, attributes, mimeType) }
+    return readImageInfo(attributes, mimeType) { newInputStream().source().buffer() }
 }
 
 /**
- * Both reads peek at [source], so the header bytes are fetched once and the EXIF read starts
- * at the beginning of the file again.
+ * A JPEG keeps both the frame header and EXIF at its start, so it is opened once and both reads
+ * peek at the same source: the header is fetched once and only as far as the decoders need it.
+ *
+ * Other formats are opened once per read and never peeked at. A WebP may keep its EXIF at the
+ * end of the file, and a peeking read there would hold the whole file in memory.
  */
+@Throws(IOException::class)
 internal fun readImageInfo(
-    source: BufferedSource,
     attributes: BasicFileAttributes,
-    mimeType: MimeType
+    mimeType: MimeType,
+    open: () -> BufferedSource
+): ImageInfo {
+    if (mimeType == MimeType.IMAGE_JPEG) {
+        return open().use { source ->
+            readImageInfo(attributes, mimeType, { source.peek() }, { source.peek() })
+        }
+    }
+    return readImageInfo(attributes, mimeType, open, open)
+}
+
+private fun readImageInfo(
+    attributes: BasicFileAttributes,
+    mimeType: MimeType,
+    openForBounds: () -> BufferedSource,
+    openForOrientation: () -> BufferedSource
 ): ImageInfo {
     val bitmapOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeStream(source.peek().inputStream(), null, bitmapOptions)
+    openForBounds().use { BitmapFactory.decodeStream(it.inputStream(), null, bitmapOptions) }
     val width = bitmapOptions.outWidth
     val height = bitmapOptions.outHeight
     val actualMimeType = bitmapOptions.outMimeType?.asMimeTypeOrNull() ?: mimeType
@@ -84,7 +102,9 @@ internal fun readImageInfo(
         return withoutOrientation
     }
     val orientation = try {
-        LargeImageOrientation.read(source.peek().inputStream(), bitmapOptions.outMimeType)
+        openForOrientation().use {
+            LargeImageOrientation.read(it.inputStream(), bitmapOptions.outMimeType)
+        }
     } catch (e: Exception) {
         e.printStackTrace()
         LargeImageOrientation.NORMAL
