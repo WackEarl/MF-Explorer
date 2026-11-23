@@ -18,15 +18,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.doOnPreDraw
 import androidx.fragment.app.Fragment
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
+import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
 import dev.chrisbanes.insetter.applySystemWindowInsetsToPadding
 import java8.nio.file.Path
+import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
 import me.zhanghai.android.files.R
 import me.zhanghai.android.files.databinding.ImageViewerFragmentBinding
 import me.zhanghai.android.files.file.fileProviderUri
-import me.zhanghai.android.files.provider.common.delete
 import me.zhanghai.android.files.ui.DepthPageTransformer
 import me.zhanghai.android.files.util.ParcelableArgs
 import me.zhanghai.android.files.util.ParcelableListParceler
@@ -43,7 +44,6 @@ import me.zhanghai.android.files.util.showToast
 import me.zhanghai.android.files.util.startActivitySafe
 import me.zhanghai.android.files.util.withChooser
 import me.zhanghai.android.systemuihelper.SystemUiHelper
-import java.io.IOException
 
 class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     private val args by args<Args>()
@@ -161,13 +161,17 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
     }
 
     override fun delete(path: Path) {
-        try {
-            path.delete(false)
-        } catch (e: IOException) {
-            e.printStackTrace()
-            showToast(e.toString())
-            return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val errorMessage = deleteImage(path)
+            if (errorMessage != null) {
+                showToast(errorMessage)
+                return@launch
+            }
+            onDeleted(path)
         }
+    }
+
+    private fun onDeleted(path: Path) {
         paths.removeAll(listOf(path))
         if (paths.isEmpty()) {
             finish()
