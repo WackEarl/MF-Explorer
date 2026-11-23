@@ -61,9 +61,11 @@
                     android:title="@string/file_list_action_sort_directories_first" />
             </group>
             <item
-                android:id="@+id/action_view_sort_path_specific"
-                android:checkable="true"
-                android:title="@string/file_list_action_view_sort_path_specific" />
+                android:id="@+id/action_reset_folder_view_sort"
+                android:title="@string/file_list_action_reset_folder_view_sort" />
+            <item
+                android:id="@+id/action_use_view_sort_as_default"
+                android:title="@string/file_list_action_use_view_sort_as_default" />
         </menu>
     </item>
 

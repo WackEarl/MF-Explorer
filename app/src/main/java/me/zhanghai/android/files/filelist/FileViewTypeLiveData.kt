@@ -28,11 +28,7 @@ class FileViewTypeLiveData(pathLiveData: LiveData<Path>) : MediatorLiveData<File
     }
 
     fun putValue(value: FileViewType) {
-        if (pathViewTypeLiveData.value != null) {
-            pathViewTypeLiveData.putValue(value)
-        } else {
-            Settings.FILE_LIST_VIEW_TYPE.putValue(value)
-        }
+        pathViewTypeLiveData.putValue(value)
     }
 
     init {

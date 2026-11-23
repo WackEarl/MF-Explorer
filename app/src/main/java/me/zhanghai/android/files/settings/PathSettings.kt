@@ -17,12 +17,13 @@ object PathSettings {
     @Suppress("UNCHECKED_CAST")
     fun getFileListViewType(path: Path): SettingLiveData<FileViewType?> =
         EnumSettingLiveData(
-            NAME_SUFFIX, R.string.pref_key_file_list_view_type, path.toString(),
+            NAME_SUFFIX, R.string.pref_key_file_list_view_type, PathSettingsKeys.suffixFor(path),
             ResourcesCompat.ID_NULL, FileViewType::class.java
         ) as SettingLiveData<FileViewType?>
 
     fun getFileListSortOptions(path: Path): SettingLiveData<FileSortOptions?> =
         ParcelValueSettingLiveData(
-            NAME_SUFFIX, R.string.pref_key_file_list_sort_options, path.toString(), null
+            NAME_SUFFIX, R.string.pref_key_file_list_sort_options, PathSettingsKeys.suffixFor(path),
+            null
         )
 }

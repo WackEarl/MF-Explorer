@@ -42,11 +42,7 @@ class FileSortOptionsLiveData(pathLiveData: LiveData<Path>) : MediatorLiveData<F
     }
 
     private fun putValue(value: FileSortOptions) {
-        if (pathSortOptionsLiveData.value != null) {
-            pathSortOptionsLiveData.putValue(value)
-        } else {
-            Settings.FILE_LIST_SORT_OPTIONS.putValue(value)
-        }
+        pathSortOptionsLiveData.putValue(value)
     }
 
     init {

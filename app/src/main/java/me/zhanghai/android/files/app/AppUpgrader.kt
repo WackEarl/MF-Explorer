@@ -61,4 +61,7 @@ private fun upgradeAppFrom(lastVersionCode: Int) {
         upgradeAppTo1_7_2()
     }
     // Continue with new `if`s on lastVersionCode instead of `else if`.
+    // Idempotent: also covers a 2.1.8 build that still has versionCode 77, and
+    // leftover plaintext keys after a settings import from 2.1.7.
+    migratePathSettingsKeys()
 }
