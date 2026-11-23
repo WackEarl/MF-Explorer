@@ -25,11 +25,14 @@ import me.zhanghai.android.files.util.valueCompat
  * there, which [PathAttributesFetcher] reads before it touches the remote file again.
  */
 class RemoteImageDiskCacheInterceptor(
-    private val diskCache: () -> DiskCache?
+    private val diskCache: () -> DiskCache?,
+    private val cacheRemoteFilesOnDisk: () -> Boolean = {
+        Settings.CACHE_REMOTE_FILES_ON_DISK.valueCompat
+    }
 ) : Interceptor {
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val path = chain.request.data.asPath()
-        if (path != null && path.isRemotePath && !Settings.CACHE_REMOTE_FILES_ON_DISK.valueCompat) {
+        if (path != null && path.isRemotePath && !cacheRemoteFilesOnDisk()) {
             val request = chain.request.newBuilder()
                 .diskCachePolicy(CachePolicy.DISABLED)
                 .build()

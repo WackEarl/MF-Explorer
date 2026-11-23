@@ -104,7 +104,8 @@ class PathAttributesFetcher(
     private val options: Options,
     private val imageLoader: ImageLoader,
     private val appIconFetcherFactory: AppIconFetcher.Factory<Path>,
-    private val pdfPageFetcherFactory: PdfPageFetcher.Factory<Path>
+    private val pdfPageFetcherFactory: PdfPageFetcher.Factory<Path>,
+    private val readRemoteFilesForThumbnail: () -> Boolean
 ) : Fetcher {
     override suspend fun fetch(): FetchResult? {
         val (path, attributes) = data
@@ -132,7 +133,7 @@ class PathAttributesFetcher(
             if (path.isRemotePath) {
                 // FTP doesn't support random access and requires one connection per parallel read.
                 val shouldReadRemotePath = !path.isFtpPath
-                    && Settings.READ_REMOTE_FILES_FOR_THUMBNAIL.valueCompat
+                    && readRemoteFilesForThumbnail()
                 if (!shouldReadRemotePath) {
                     error("Cannot read $path for thumbnail")
                 }
@@ -223,7 +224,12 @@ class PathAttributesFetcher(
         return null
     }
 
-    class Factory(private val context: Context) : Fetcher.Factory<Pair<Path, BasicFileAttributes>> {
+    class Factory(
+        private val context: Context,
+        private val readRemoteFilesForThumbnail: () -> Boolean = {
+            Settings.READ_REMOTE_FILES_FOR_THUMBNAIL.valueCompat
+        }
+    ) : Fetcher.Factory<Pair<Path, BasicFileAttributes>> {
         private val appIconFetcherFactory = object : AppIconFetcher.Factory<Path>(
             // This is used by FileListAdapter.
             context.getDimensionPixelSize(R.dimen.large_icon_size), context
@@ -257,7 +263,8 @@ class PathAttributesFetcher(
             imageLoader: ImageLoader
         ): Fetcher =
             PathAttributesFetcher(
-                data, options, imageLoader, appIconFetcherFactory, pdfPageFetcherFactory
+                data, options, imageLoader, appIconFetcherFactory, pdfPageFetcherFactory,
+                readRemoteFilesForThumbnail
             )
     }
 }

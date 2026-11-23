@@ -40,6 +40,23 @@ object TestJpegs {
         return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     }
 
+    /**
+     * A [width] x [height] thumbnail with black bars around [quadrants] of [contentWidth] x
+     * [contentHeight], as a camera pads the 160x120 EXIF thumbnail of a 3:2 photo.
+     */
+    fun letterboxed(width: Int, height: Int, contentWidth: Int, contentHeight: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.BLACK)
+        val content = quadrants(contentWidth, contentHeight)
+        val pixels = IntArray(contentWidth * contentHeight)
+        content.getPixels(pixels, 0, contentWidth, 0, 0, contentWidth, contentHeight)
+        bitmap.setPixels(
+            pixels, 0, contentWidth, (width - contentWidth) / 2, (height - contentHeight) / 2,
+            contentWidth, contentHeight
+        )
+        return bitmap
+    }
+
     private fun addNoise(color: Int, random: Random): Int {
         fun channel(value: Int) = (value + random.nextInt(-40, 41)).coerceIn(0, 255)
         return Color.rgb(

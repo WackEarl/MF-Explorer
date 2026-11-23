@@ -1,0 +1,2 @@
+- Folder thumbnails of camera JPEGs load much faster in list and grid view: the camera's embedded thumbnail is now also used when it has black bars or is small, instead of reading the whole photo.
+- Loading these thumbnails no longer holds up opening other folders on the same network share.
