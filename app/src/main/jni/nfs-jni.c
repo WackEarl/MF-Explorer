@@ -154,6 +154,33 @@ static int writes_close(struct nfs_context *nfs, struct nfsfh *fh);
 /* libnfs-private.h. Lets a deferred write error carry its own text. */
 void nfs_set_error(struct nfs_context *nfs, char *error_string, ...);
 
+/*
+ * Called from another thread than the one using the context, which may be
+ * blocked in poll() for an RPC timeout. shutdown() only touches the socket:
+ * the user's poll() wakes up with POLLHUP and libnfs reconnects, which fails
+ * at once without a network, so every waiting call ends now instead of after
+ * the RPC timeout (rc2 finding B5). The Java side keeps the context from
+ * being destroyed meanwhile. libnfs can still close the fd in between; the
+ * number is only reused if another socket is opened in that window, and the
+ * call only happens when the network is already gone.
+ */
+JNIEXPORT void JNICALL
+Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_shutdownSocket(JNIEnv *env,
+                                                                           jclass clazz,
+                                                                           jlong context) {
+    int fd;
+
+    (void) env;
+    (void) clazz;
+    if (context == 0) {
+        return;
+    }
+    fd = nfs_get_fd(context_from(context));
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+    }
+}
+
 JNIEXPORT void JNICALL
 Java_me_zhanghai_android_files_provider_nfs_client_NfsNative_destroy(JNIEnv *env, jclass clazz,
                                                                     jlong context) {

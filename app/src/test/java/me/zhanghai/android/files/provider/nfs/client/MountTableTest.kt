@@ -125,4 +125,19 @@ class MountTableTest {
         old.close(1L)
         assertSame(fresh, table.mountFor(1L))
     }
+
+    @Test
+    fun allMountsIncludesDetachedContextsOnce() {
+        // A lost network must also end the session a copy still has open on a retired context.
+        val old = table.install(FakeMount("nas"))
+        old.open(1L)
+        old.open(2L)
+        table.retire(old)
+        val fresh = table.install(FakeMount("nas"))
+        fresh.open(3L)
+        val all = table.allMounts()
+        assertEquals(2, all.size)
+        assertTrue(all.contains(old))
+        assertTrue(all.contains(fresh))
+    }
 }

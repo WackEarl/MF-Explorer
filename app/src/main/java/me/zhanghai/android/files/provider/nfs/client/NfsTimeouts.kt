@@ -43,6 +43,12 @@ internal object NfsTimeouts {
     fun failWithoutNetwork(networkAvailable: Boolean, host: String): Boolean =
         !networkAvailable && !isLoopback(host)
 
+    /**
+     * Whether a lost default network ends the sessions to [host]. A server on this device
+     * is still reachable without one.
+     */
+    fun abortOnNetworkLoss(host: String): Boolean = !isLoopback(host)
+
     private fun isLoopback(host: String): Boolean {
         val bare = host.removePrefix("[").removeSuffix("]").lowercase()
         return bare == "localhost" || bare == "::1" || bare.startsWith("127.")

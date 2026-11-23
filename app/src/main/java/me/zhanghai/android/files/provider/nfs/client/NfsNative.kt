@@ -24,6 +24,12 @@ internal object NfsNative {
 
     external fun destroy(context: Long)
 
+    /**
+     * Ends the TCP session of [context] from another thread, so calls blocked on it fail now.
+     * The context must stay alive meanwhile.
+     */
+    external fun shutdownSocket(context: Long)
+
     external fun mount(
         context: Long,
         host: String,

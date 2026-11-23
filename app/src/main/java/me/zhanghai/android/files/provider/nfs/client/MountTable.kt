@@ -42,6 +42,10 @@ internal class MountTable<A : Any, M : MountTable.State<A>> {
     @Synchronized
     fun currentMounts(): List<M> = current.values.toList()
 
+    /** Current and detached contexts, each once. */
+    @Synchronized
+    fun allMounts(): List<M> = (current.values + handles.values).distinct()
+
     /** Makes [mount] the current one, or returns the one another thread installed first. */
     @Synchronized
     fun install(mount: M): M {

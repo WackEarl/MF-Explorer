@@ -109,6 +109,10 @@ internal object NfsNetworkMonitor {
     private fun onNetworkChanged(available: Boolean) {
         worker.execute {
             try {
+                if (!available) {
+                    // First, so that a destroy below does not wait for a dead socket either.
+                    Client.abortSessions()
+                }
                 Client.onNetworkChanged()
             } catch (e: RuntimeException) {
                 Log.e(TAG, "Handling a network change failed", e)

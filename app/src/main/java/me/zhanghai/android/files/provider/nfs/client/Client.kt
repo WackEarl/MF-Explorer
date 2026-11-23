@@ -47,6 +47,12 @@ internal object Client {
     ) : MountTable.State<Authority>(authority) {
         /** Lets a non-pipeline read give way to a list, open or stat waiting for [lock]. */
         val gate = WaiterGate(lock)
+
+        /**
+         * Held while [context] is destroyed, and by [abortSessions], which runs while another
+         * thread holds [lock] and must not see the context freed under it.
+         */
+        val destroyLock = ReentrantLock()
     }
 
     interface Path {
@@ -64,6 +70,34 @@ internal object Client {
         val mount = table.unpin(authority)
         if (mount != null) {
             reap(mount)
+        }
+    }
+
+    /**
+     * The default network is gone. Ends the TCP sessions of all contexts, also those that only
+     * open files still use, so calls blocked on them fail now instead of after the RPC timeout:
+     * a copy that lost the network showed its error after 32 s instead of 2 s (rc2 finding B5).
+     * Does not wait for the mount locks; a context that is being destroyed is skipped.
+     */
+    fun abortSessions() {
+        for (mount in table.allMounts()) {
+            mount.stale = true
+            if (!NfsTimeouts.abortOnNetworkLoss(mount.authority.host)) {
+                continue
+            }
+            if (!mount.destroyLock.tryLock()) {
+                continue
+            }
+            try {
+                val context = mount.context
+                if (context != 0L) {
+                    Log.i(TAG, "Network lost, ending the NFS session to ${mount.authority} " +
+                        "(open files: ${mount.files})")
+                    NfsNative.shutdownSocket(context)
+                }
+            } finally {
+                mount.destroyLock.unlock()
+            }
         }
     }
 
@@ -297,10 +331,15 @@ internal object Client {
 
     private fun destroyLocked(mount: Mount) {
         mount.alive = false
-        val context = mount.context
-        mount.context = 0L
-        if (context != 0L) {
-            NfsNative.destroy(context)
+        mount.destroyLock.lock()
+        try {
+            val context = mount.context
+            mount.context = 0L
+            if (context != 0L) {
+                NfsNative.destroy(context)
+            }
+        } finally {
+            mount.destroyLock.unlock()
         }
     }
 

@@ -69,4 +69,15 @@ class NfsTimeoutsTest {
             nfsErrorKind(0, "Network is unreachable")
         )
     }
+
+    @Test
+    fun lostNetworkEndsSessionsExceptOnThisDevice() {
+        // rc2 B5: a copy that lost the network waited for the RPC timeout before it failed.
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("192.168.0.10"))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("nas.local"))
+        assertTrue(NfsTimeouts.abortOnNetworkLoss("[fe80::1]"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("127.0.0.1"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("[::1]"))
+        assertFalse(NfsTimeouts.abortOnNetworkLoss("localhost"))
+    }
 }
