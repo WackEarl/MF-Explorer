@@ -56,3 +56,11 @@ picture(8000, 6000, "r7-no-exif-preview.jpg").save(
     OUT / "r7-no-exif-preview.jpg", "JPEG", quality=92)
 picture(8000, 6000, "r12-large.webp").save(OUT / "r12-large.webp", "WEBP", quality=90)
 picture(8000, 6000, "r12-large.heic").save(OUT / "r12-large.heic", "HEIF", quality=90)
+
+# T4: broken files for the viewer's error page. Run after the R6 files exist.
+# Header and first scans only: decoders that accept partial data show a grey lower part.
+small = (OUT / "r6-orient6-small.jpg").read_bytes()
+(OUT / "t4-truncated.jpg").write_bytes(small[:len(small) // 3])
+# A JPEG signature followed by noise: no decoder can read it, so the error page.
+noise = random.Random("t4-broken")
+(OUT / "t4-broken.jpg").write_bytes(b"\xff\xd8\xff\xe0" + bytes(noise.randrange(256) for _ in range(64 * 1024)))
