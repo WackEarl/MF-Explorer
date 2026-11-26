@@ -120,6 +120,7 @@ class ImageViewerFragment : Fragment(), ConfirmDeleteDialogFragment.Listener {
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
                     neighborPreloadGate.onPageSelected(paths.getOrNull(position))
+                    this@ImageViewerFragment.adapter.reloadIfFailed(position)
                     updateTitle()
                 }
             })

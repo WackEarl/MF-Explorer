@@ -9,6 +9,7 @@ import android.os.Looper
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.RecyclerView
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
 import java8.nio.file.attribute.FileTime
@@ -268,5 +269,65 @@ class ImageViewerAdapterTest {
         assertFalse(holder.binding.errorText.isVisible)
     }
 
+    /** B2: a neighbor that failed offline loads again when it is shown. */
+    @Test
+    fun aFailedPageLoadsAgainWhenItIsSelected() {
+        val gate = NeighborPreloadGate(first)
+        var online = false
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            if (!online) {
+                throw IOException("offline")
+            }
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        val reloaded = mutableListOf<Int>()
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                assertTrue("reload without a payload", payload != null)
+                repeat(itemCount) { reloaded += positionStart + it }
+            }
+        })
+        val current = holderFor(adapter)
+        val neighbor = holderFor(adapter)
+        adapter.onBindViewHolder(current, 0)
+        adapter.onBindViewHolder(neighbor, 1)
+        idle()
+        assertTrue(neighbor.binding.errorText.isVisible)
 
+        // Back online, swiped to the neighbor: the page is bound again.
+        online = true
+        gate.onPageSelected(second)
+        adapter.reloadIfFailed(1)
+        assertEquals(listOf(1), reloaded)
+        adapter.onBindViewHolder(neighbor, 1)
+        idle()
+        assertFalse(neighbor.binding.errorText.isVisible)
+
+        // A page that did not fail is left alone, and a reload is only asked for once.
+        adapter.reloadIfFailed(1)
+        assertEquals(listOf(1), reloaded)
+    }
+
+    @Test
+    fun aPageThatLoadedIsNotReloaded() {
+        val gate = NeighborPreloadGate(first)
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        var changes = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                changes++
+            }
+        })
+        adapter.onBindViewHolder(holderFor(adapter), 0)
+        idle()
+
+        adapter.reloadIfFailed(0)
+        adapter.reloadIfFailed(1)
+        // Out of range, e.g. right after a delete.
+        adapter.reloadIfFailed(5)
+
+        assertEquals(0, changes)
+    }
 }

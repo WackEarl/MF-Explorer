@@ -47,6 +47,21 @@ internal class ImageViewerAdapter(
 
     override fun getItemId(position: Int): Long = getItem(position).hashCode().toLong()
 
+    /** Pages whose last load failed, e.g. a neighbor preloaded while the share was offline. */
+    private val failedPaths = mutableSetOf<Path>()
+
+    /**
+     * Loads the page at [position] again if its last load failed, so a page that is shown again
+     * does not keep an error from an earlier attempt. Called when the page is selected.
+     */
+    fun reloadIfFailed(position: Int) {
+        val path = list.getOrNull(position) ?: return
+        if (failedPaths.remove(path)) {
+            // A payload keeps the same holder instead of a change animation with a new one.
+            notifyItemChanged(position, PAYLOAD_RELOAD)
+        }
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
         ViewHolder(ImageViewerItemBinding.inflate(parent.context.layoutInflater, parent, false))
 
@@ -71,6 +86,7 @@ internal class ImageViewerAdapter(
 
     private fun loadImage(holder: ViewHolder, path: Path) {
         val binding = holder.binding
+        failedPaths.remove(path)
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
@@ -90,7 +106,7 @@ internal class ImageViewerAdapter(
                 // Includes a CancellationException from the read itself, which must not leave
                 // the page loading forever and its neighbors waiting.
                 e.printStackTrace()
-                showError(binding, e)
+                showError(binding, path, e)
                 preloadGate.onPageLoaded(path)
                 return@launch
             }
@@ -115,7 +131,7 @@ internal class ImageViewerAdapter(
                             preloadGate.onPageLoaded(path)
                         },
                         onError = { _, result ->
-                            showError(binding, result.throwable)
+                            showError(binding, path, result.throwable)
                             preloadGate.onPageLoaded(path)
                         }
                     )
@@ -144,7 +160,7 @@ internal class ImageViewerAdapter(
 
                     override fun onImageLoadError(e: Exception) {
                         e.printStackTrace()
-                        showError(binding, e)
+                        showError(binding, path, e)
                         preloadGate.onPageLoaded(path)
                     }
                 })
@@ -197,7 +213,8 @@ internal class ImageViewerAdapter(
             return max(viewWidth.toFloat() / imageWidth, viewHeight.toFloat() / imageHeight)
         }
 
-    private fun showError(binding: ImageViewerItemBinding, throwable: Throwable) {
+    private fun showError(binding: ImageViewerItemBinding, path: Path, throwable: Throwable) {
+        failedPaths.add(path)
         binding.progress.hide()
         binding.errorText.text = throwable.toString()
         binding.errorText.fadeInUnsafe(true)
@@ -211,6 +228,8 @@ internal class ImageViewerAdapter(
 
     companion object {
         private val LARGE_IMAGE_URI: Uri = Uri.parse("mfx-large-image:")
+
+        private val PAYLOAD_RELOAD = Any()
     }
 
 }
