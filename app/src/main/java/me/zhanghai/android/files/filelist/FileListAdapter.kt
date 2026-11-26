@@ -81,6 +81,15 @@ class FileListAdapter(
 
     private val filePositionMap = mutableMapOf<Path, Int>()
 
+    private val failedThumbnails = FailedThumbnails()
+
+    /** Loads the thumbnails again that failed to read, e.g. while the share was offline. */
+    fun retryFailedThumbnails() {
+        for (position in failedThumbnails.takeRetryPositions { filePositionMap[it] }) {
+            notifyItemChanged(position, PAYLOAD_RETRY_THUMBNAIL)
+        }
+    }
+
     private lateinit var _nameEllipsize: TextUtils.TruncateAt
     var nameEllipsize: TextUtils.TruncateAt
         get() = _nameEllipsize
@@ -263,7 +272,8 @@ class FileListAdapter(
                 isSelected = nameEllipsize == TextUtils.TruncateAt.MARQUEE
             }
         }
-        if (payloads.isNotEmpty()) {
+        // A thumbnail retry binds the whole item again, on the same holder.
+        if (payloads.isNotEmpty() && PAYLOAD_RETRY_THUMBNAIL !in payloads) {
             return
         }
         bindViewHolderAnimation(holder)
@@ -310,11 +320,17 @@ class FileListAdapter(
             val shouldLoadThumbnail = supportsThumbnail && !shouldLoadThumbnailIcon
             isVisible = shouldLoadThumbnail
             if (shouldLoadThumbnail) {
+                failedThumbnails.onLoadStarted(path)
                 load(path to attributes) {
-                    listener { _, _ ->
-                        val iconImage = holder.thumbnailIconImage ?: holder.iconImage
-                        iconImage.isVisible = false
-                    }
+                    listener(
+                        onError = { _, result ->
+                            failedThumbnails.onLoadFailed(path, result.throwable)
+                        },
+                        onSuccess = { _, _ ->
+                            val iconImage = holder.thumbnailIconImage ?: holder.iconImage
+                            iconImage.isVisible = false
+                        }
+                    )
                 }
             }
         }
@@ -463,6 +479,8 @@ class FileListAdapter(
 
     companion object {
         private val PAYLOAD_STATE_CHANGED = Any()
+
+        private val PAYLOAD_RETRY_THUMBNAIL = Any()
 
         private val CALLBACK = object : DiffUtil.ItemCallback<FileItem>() {
             override fun areItemsTheSame(oldItem: FileItem, newItem: FileItem): Boolean =
