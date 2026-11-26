@@ -216,7 +216,7 @@ internal class ImageViewerAdapter(
     private fun showError(binding: ImageViewerItemBinding, path: Path, throwable: Throwable) {
         failedPaths.add(path)
         binding.progress.hide()
-        binding.errorText.text = throwable.toString()
+        binding.errorText.text = throwable.toImageErrorMessage(binding.root.context)
         binding.errorText.fadeInUnsafe(true)
         binding.image.isVisible = false
         binding.largeImage.isVisible = false

@@ -87,6 +87,9 @@ class ImageViewerAdapterTest {
     private val showDelay: Long
         get() = activity.resources.getInteger(R.integer.image_viewer_progress_show_delay).toLong()
 
+    private val genericError: String
+        get() = activity.getString(R.string.image_viewer_error)
+
     private fun imageInfo() =
         ImageInfo(attributes, 100, 100, "image/jpeg".asMimeType(), LargeImageOrientation.NORMAL)
 
@@ -108,7 +111,7 @@ class ImageViewerAdapterTest {
         gate.onPageSelected(second)
         adapter.onBindViewHolder(holder, 1)
         idle()
-        assertEquals("java.io.IOException: second failed", holder.binding.errorText.text)
+        assertEquals(genericError, holder.binding.errorText.text)
 
         // A normal image would be handed to the image view if this result were still applied.
         firstInfo.complete(
@@ -116,7 +119,7 @@ class ImageViewerAdapterTest {
         )
         idle()
 
-        assertEquals("java.io.IOException: second failed", holder.binding.errorText.text)
+        assertEquals(genericError, holder.binding.errorText.text)
         assertFalse(holder.binding.image.isVisible)
         assertFalse(holder.binding.largeImage.isVisible)
     }
@@ -135,9 +138,9 @@ class ImageViewerAdapterTest {
         adapter.onBindViewHolder(holder, 0)
         idle()
 
-        assertTrue(holder.binding.errorText.text.contains("read cancelled"))
+        assertEquals(genericError, holder.binding.errorText.text)
         // The neighbor was let through after the current page failed, and failed the same way.
-        assertTrue(neighbor.binding.errorText.text.contains("read cancelled"))
+        assertEquals(genericError, neighbor.binding.errorText.text)
     }
 
     /** Issue #58: a loading indicator over the placeholder, without flashing. */
