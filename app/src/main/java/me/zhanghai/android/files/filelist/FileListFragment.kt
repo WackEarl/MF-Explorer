@@ -252,8 +252,6 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         binding.appBarLayout.syncBackgroundColorTo(binding.overlayToolbar)
         binding.breadcrumbLayout.setListener(this)
         binding.addTabButton.setOnClickListener { openNewTab(currentPath) }
-        // Keep tabs from drawing under the plus button; XML also sets this.
-        binding.tabLayout.clipToPadding = true
         binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 if (updatingTabs) {

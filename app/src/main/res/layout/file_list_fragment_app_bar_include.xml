@@ -54,15 +54,19 @@
             android:clipChildren="true"
             android:clipToPadding="true">
 
+            <!--
+              ~ Beside the plus button, not under it: an end padding would let a scrollable
+              ~ TabLayout scroll by the padding even when its tabs fit, as it stretches its tab
+              ~ strip to its whole width.
+              -->
             <com.google.android.material.tabs.TabLayout
                 android:id="@+id/tabLayout"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:layout_marginEnd="@dimen/tab_layout_height"
                 android:background="@android:color/transparent"
                 android:clipChildren="true"
                 android:clipToPadding="true"
-                android:paddingEnd="@dimen/tab_layout_height"
-                android:paddingStart="0dp"
                 app:tabGravity="start"
                 app:tabIndicatorFullWidth="false"
                 app:tabMinWidth="48dp"

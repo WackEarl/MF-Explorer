@@ -9,9 +9,13 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="?colorControlHighlight">
 
-    <item>
+    <!--
+      ~ Only a mask: no tab draws under the button, and a fill of its own would not follow the
+      ~ app bar's color when it lifts on scroll.
+      -->
+    <item android:id="@android:id/mask">
         <shape android:shape="rectangle">
-            <solid android:color="?colorAppBarSurface" />
+            <solid android:color="@android:color/white" />
         </shape>
     </item>
 </ripple>
