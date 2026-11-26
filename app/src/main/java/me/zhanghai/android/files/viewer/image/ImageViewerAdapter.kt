@@ -112,6 +112,7 @@ internal class ImageViewerAdapter(
         super.onViewRecycled(holder)
 
         holder.loadJob.cancel()
+        holder.largeImageBind = null
         val binding = holder.binding
         binding.progress.hide()
         binding.image.dispose()
@@ -122,6 +123,8 @@ internal class ImageViewerAdapter(
     private fun loadImage(holder: ViewHolder, path: Path) {
         val binding = holder.binding
         failedPaths.remove(path)
+        // A decoder of the previous image may still be reading its file.
+        holder.largeImageBind = null
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
@@ -145,15 +148,16 @@ internal class ImageViewerAdapter(
                 preloadGate.onPageLoaded(path)
                 return@launch
             }
-            loadImageWithInfo(binding, path, imageInfo)
+            loadImageWithInfo(holder, path, imageInfo)
         }
     }
 
     private suspend fun loadImageWithInfo(
-        binding: ImageViewerItemBinding,
+        holder: ViewHolder,
         path: Path,
         imageInfo: ImageInfo
     ) {
+        val binding = holder.binding
         if (!imageInfo.shouldUseLargeImageView) {
             binding.image.apply {
                 isVisible = true
@@ -174,7 +178,7 @@ internal class ImageViewerAdapter(
                 }
             }
         } else {
-            loadLargeImage(binding, path, imageInfo)
+            loadLargeImage(holder, path, imageInfo)
         }
     }
 
@@ -186,10 +190,14 @@ internal class ImageViewerAdapter(
      * the network is not part of it.
      */
     private suspend fun loadLargeImage(
-        binding: ImageViewerItemBinding,
+        holder: ViewHolder,
         path: Path,
         imageInfo: ImageInfo
     ) {
+        val binding = holder.binding
+        val bind = Any()
+        holder.largeImageBind = bind
+        val isCurrent = { holder.largeImageBind === bind }
         val decodeStarted = CompletableDeferred<Unit>()
         val finished = CompletableDeferred<Unit>()
         var loaded = false
@@ -229,10 +237,22 @@ internal class ImageViewerAdapter(
                 }
 
                 override fun onImageLoadError(e: Exception) {
+                    if (e is StaleDecoderException) {
+                        // The previous image's decoder. This image's own is still coming.
+                        return
+                    }
                     fail(e)
                 }
 
                 override fun onTileLoadError(e: Exception) {
+                    if (e is StaleDecoderException) {
+                        // The previous image's decoder was handed over right after this bind.
+                        // Start again, so the view gets a decoder of this image.
+                        if (isCurrent()) {
+                            loadImage(holder, path)
+                        }
+                        return
+                    }
                     if (loaded) {
                         // A tile for zooming in. The image itself is shown.
                         e.logFailure(TAG, "Cannot load a tile of $path")
@@ -245,9 +265,12 @@ internal class ImageViewerAdapter(
             // Not our file provider's URI: see PathImageRegionDecoder. The view needs a URI,
             // and the decoder ignores it.
             setRegionDecoderFactory {
-                FirstTileListeningDecoder(newLargeImageDecoder(path)) {
-                    decodeStarted.complete(Unit)
-                }
+                CurrentBindDecoder(
+                    FirstTileListeningDecoder(newLargeImageDecoder(path)) {
+                        decodeStarted.complete(Unit)
+                    },
+                    isCurrent
+                )
             }
             val imageSource = ImageSource.uri(LARGE_IMAGE_URI)
             val previewSource = binding.largeImagePreview(path, imageInfo)
@@ -318,6 +341,13 @@ internal class ImageViewerAdapter(
 
     class ViewHolder(val binding: ImageViewerItemBinding) : RecyclerView.ViewHolder(binding.root) {
         internal val loadJob = BindJob()
+
+        /**
+         * Identifies the large image load of the current bind. Written on the main thread, read
+         * by its decoder on the view's decoder threads.
+         */
+        @Volatile
+        internal var largeImageBind: Any? = null
     }
 
     companion object {
