@@ -15,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.imageLoader
 import coil.load
-import coil.size.Size
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnImageEventListener
@@ -108,11 +107,8 @@ internal class ImageViewerAdapter(
             binding.image.apply {
                 isVisible = true
                 load(path to imageInfo.attributes) {
-                    size(Size.ORIGINAL)
+                    fullImage(path, imageInfo.attributes)
                     fadeIn(context.shortAnimTime)
-                    placeholderMemoryCacheKey(
-                        ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
-                    )
                     listener(
                         onSuccess = { _, _ ->
                             binding.progress.hide()
