@@ -1,0 +1,2 @@
+- Fixed the image viewer showing a different image after swiping quickly through large images on a network share.
+- The file list's toolbar stays collapsed when the theme changes.
