@@ -5,6 +5,7 @@
 
 package me.zhanghai.android.files.filelist
 
+import android.graphics.drawable.RippleDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.FrameLayout
@@ -50,6 +51,20 @@ class TabBarScrollRangeTest {
         val lastRight = tabLayout.left + strip.left + lastTab.right - tabLayout.scrollX
         assertTrue("last tab ends at $lastRight, plus at ${plus.left}", lastRight <= plus.left)
         assertFalse("bar scrolls past its last tab", tabLayout.canScrollHorizontally(1))
+    }
+
+    /** Dev #52: the plus button must not paint its own fill over the lifted app bar. */
+    @Test
+    fun thePlusButtonHasNoFillOfItsOwn() {
+        val (_, plus) = layoutTabBar(View.LAYOUT_DIRECTION_LTR, tabCount = 2)
+        val background = plus.background as RippleDrawable
+
+        for (index in 0 until background.numberOfLayers) {
+            assertEquals(
+                "layer $index of the plus button background is drawn",
+                android.R.id.mask, background.getId(index)
+            )
+        }
     }
 
     private fun assertDoesNotScroll(layoutDirection: Int) {
