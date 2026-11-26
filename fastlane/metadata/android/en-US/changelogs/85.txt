@@ -1,0 +1,4 @@
+- Fixed the image viewer showing the small list thumbnail instead of the full image after a restart.
+- Thumbnails and viewer pages that failed while a network share was unreachable now load again when the connection is back.
+- Clearer error message when an image cannot be shown.
+- Fixed folder tabs scrolling out of view when the tab bar is not full, and the tab bar's plus button keeping its own background when the app bar changes color.
