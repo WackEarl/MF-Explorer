@@ -56,13 +56,42 @@ internal class ImageViewerAdapter(
     /** Pages whose last load failed, e.g. a neighbor preloaded while the share was offline. */
     private val failedPaths = mutableSetOf<Path>()
 
+    private var recyclerView: RecyclerView? = null
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        this.recyclerView = recyclerView
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        this.recyclerView = null
+    }
+
     /**
      * Loads the page at [position] again if its last load failed, so a page that is shown again
      * does not keep an error from an earlier attempt. Called when the page is selected.
+     *
+     * ViewPager2 selects a page from a scroll callback of its RecyclerView, where the adapter
+     * must not change, so the reload is posted to the next frame.
      */
     fun reloadIfFailed(position: Int) {
         val path = list.getOrNull(position) ?: return
-        if (failedPaths.remove(path)) {
+        if (path !in failedPaths) {
+            return
+        }
+        val recyclerView = recyclerView
+        if (recyclerView == null) {
+            reloadNowIfFailed(path)
+        } else {
+            recyclerView.post { reloadNowIfFailed(path) }
+        }
+    }
+
+    private fun reloadNowIfFailed(path: Path) {
+        // The list may have changed in the meantime, e.g. after a delete.
+        val position = list.indexOf(path)
+        if (position != -1 && failedPaths.remove(path)) {
             // A payload keeps the same holder instead of a change animation with a new one.
             notifyItemChanged(position, PAYLOAD_RELOAD)
         }

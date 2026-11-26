@@ -16,6 +16,7 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.davemorrissey.labs.subscaleview.decoder.ImageRegionDecoder
 import java8.nio.file.Path
@@ -36,6 +37,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowLog
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.lang.reflect.Proxy
@@ -472,4 +474,63 @@ class ImageViewerAdapterTest {
         assertEquals(0, decoder.decodeAttempts.get())
         assertFalse(holder.binding.errorText.isVisible)
     }
+
+    /**
+     * B5: ViewPager2 selects a page from a scroll callback, where changing the adapter logs an
+     * IllegalStateException. The reload of a failed page waits for the next frame.
+     */
+    @Test
+    fun aFailedPageIsReloadedAfterTheScrollCallback() {
+        val gate = NeighborPreloadGate(first)
+        var online = false
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            if (!online) {
+                throw IOException("offline")
+            }
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        val recyclerView = RecyclerView(activity).apply {
+            layoutManager = LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+            this.adapter = adapter
+        }
+        activity.setContentView(recyclerView)
+        recyclerView.measure(
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY)
+        )
+        recyclerView.layout(0, 0, 400, 300)
+        idle()
+        val page = recyclerView.findViewHolderForAdapterPosition(0)
+            as ImageViewerAdapter.ViewHolder
+        assertTrue(page.binding.errorText.isVisible)
+
+        online = true
+        var changedInCallback = false
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                changedInCallback = changedInCallback || inScrollCallback
+            }
+        })
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                inScrollCallback = true
+                adapter.reloadIfFailed(0)
+                inScrollCallback = false
+            }
+        })
+        ShadowLog.clear()
+        // Part of a swipe, so the page stays laid out.
+        recyclerView.scrollBy(50, 0)
+        idle()
+
+        assertFalse(changedInCallback)
+        assertTrue(
+            ShadowLog.getLogs().none { it.msg.orEmpty().contains("in a scroll callback") }
+        )
+        val reloaded = recyclerView.findViewHolderForAdapterPosition(0)
+            as ImageViewerAdapter.ViewHolder
+        assertFalse(reloaded.binding.errorText.isVisible)
+    }
+
+    private var inScrollCallback = false
 }
