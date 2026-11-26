@@ -5,11 +5,20 @@
 
 package me.zhanghai.android.files.viewer.image
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Point
+import android.graphics.Rect
+import android.net.Uri
 import android.os.Looper
+import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.davemorrissey.labs.subscaleview.decoder.ImageRegionDecoder
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
 import java8.nio.file.attribute.FileTime
@@ -28,6 +37,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowLog
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.lang.reflect.Proxy
@@ -333,4 +343,194 @@ class ImageViewerAdapterTest {
 
         assertEquals(0, changes)
     }
+
+    /** A large image decoder that opens the file but cannot decode it, like HEIC on some devices. */
+    private class UndecodableDecoder(
+        private val width: Int,
+        private val height: Int,
+        val hang: CountDownLatch? = null
+    ) : ImageRegionDecoder {
+        @Volatile
+        private var ready = false
+        val decodeAttempts = java.util.concurrent.atomic.AtomicInteger()
+
+        override fun init(context: Context, uri: Uri): Point {
+            ready = true
+            return Point(width, height)
+        }
+
+        override fun decodeRegion(sRect: Rect, sampleSize: Int): Bitmap {
+            decodeAttempts.incrementAndGet()
+            hang?.await(30, TimeUnit.SECONDS)
+            throw RuntimeException("Cannot decode region of r12-large.heic")
+        }
+
+        override fun isReady(): Boolean = ready
+
+        override fun recycle() {
+            ready = false
+        }
+    }
+
+    /** Lays out and draws [view] until [done], as the view only decodes tiles when drawn. */
+    private fun drawUntil(view: View, timeoutMillis: Long = 10_000, done: () -> Boolean) {
+        val bitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (!done() && System.currentTimeMillis() < deadline) {
+            idle()
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY)
+            )
+            view.layout(0, 0, 400, 300)
+            view.draw(Canvas(bitmap))
+            Thread.sleep(10)
+        }
+    }
+
+    private fun largeImageInfo() =
+        // 8000 × 6000 like r12-large.heic: too large for a bitmap, so the large view.
+        ImageInfo(datedAttributes, 8000, 6000, "image/heic".asMimeType(), LargeImageOrientation.NORMAL)
+
+    /** B4: a large image whose tiles cannot be decoded shows the error page, not a spinner. */
+    @Test
+    fun aLargeImageWhoseTilesCannotBeDecodedShowsTheErrorPage() {
+        val gate = NeighborPreloadGate(first)
+        val decoder = UndecodableDecoder(8000, 6000)
+        val reads = mutableListOf<Path>()
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate, newLargeImageDecoder = { decoder }
+        ) { path ->
+            reads.add(path)
+            largeImageInfo()
+        }.apply { replace(listOf(first, second)) }
+        val holder = attachedHolderFor(adapter)
+        val neighbor = holderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        adapter.onBindViewHolder(neighbor, 1)
+        advance(showDelay * 2)
+        assertTrue(holder.binding.progress.isVisible)
+        drawUntil(holder.binding.root) { holder.binding.errorText.isVisible }
+
+        assertTrue(decoder.decodeAttempts.get() > 0)
+        assertTrue(holder.binding.errorText.isVisible)
+        assertEquals(genericError, holder.binding.errorText.text)
+        assertFalse(holder.binding.progress.isVisible)
+        assertFalse(holder.binding.largeImage.isVisible)
+        // The page counts as loaded, so the neighbor waiting for it is let through.
+        idle()
+        assertTrue(reads.any { it === second })
+    }
+
+    /** A decoder that never returns ends in the error page once the decode timeout ran out. */
+    @Test
+    fun aLargeImageDecoderThatHangsShowsTheErrorPageAfterTheTimeout() {
+        val gate = NeighborPreloadGate(first)
+        val hang = CountDownLatch(1)
+        val decoder = UndecodableDecoder(8000, 6000, hang)
+        // Generous, because the test clock may jump by several seconds while the view animates.
+        val timeout = 60_000L
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate, newLargeImageDecoder = { decoder },
+            largeImageDecodeTimeoutMillis = timeout
+        ) { largeImageInfo() }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+        try {
+            adapter.onBindViewHolder(holder, 0)
+            drawUntil(holder.binding.root) { decoder.decodeAttempts.get() > 0 }
+            assertTrue(decoder.decodeAttempts.get() > 0)
+            advance(1000)
+            advance(1000)
+            assertFalse(holder.binding.errorText.isVisible)
+            assertTrue(holder.binding.progress.isVisible)
+
+            advance(timeout)
+
+            assertTrue(holder.binding.errorText.isVisible)
+            assertEquals(genericError, holder.binding.errorText.text)
+            assertFalse(holder.binding.progress.isVisible)
+            assertFalse(holder.binding.largeImage.isVisible)
+        } finally {
+            hang.countDown()
+        }
+    }
+
+    /** Only decoding counts: a large image that is never drawn is not timed out. */
+    @Test
+    fun aLargeImageThatIsNotDrawnYetIsNotTimedOut() {
+        val gate = NeighborPreloadGate(first)
+        val decoder = UndecodableDecoder(8000, 6000)
+        val timeout = 5_000L
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate, newLargeImageDecoder = { decoder },
+            largeImageDecodeTimeoutMillis = timeout
+        ) { largeImageInfo() }.apply { replace(listOf(first)) }
+        val holder = holderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        advance(timeout * 3)
+
+        assertEquals(0, decoder.decodeAttempts.get())
+        assertFalse(holder.binding.errorText.isVisible)
+    }
+
+    /**
+     * B5: ViewPager2 selects a page from a scroll callback, where changing the adapter logs an
+     * IllegalStateException. The reload of a failed page waits for the next frame.
+     */
+    @Test
+    fun aFailedPageIsReloadedAfterTheScrollCallback() {
+        val gate = NeighborPreloadGate(first)
+        var online = false
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            if (!online) {
+                throw IOException("offline")
+            }
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        val recyclerView = RecyclerView(activity).apply {
+            layoutManager = LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+            this.adapter = adapter
+        }
+        activity.setContentView(recyclerView)
+        recyclerView.measure(
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY)
+        )
+        recyclerView.layout(0, 0, 400, 300)
+        idle()
+        val page = recyclerView.findViewHolderForAdapterPosition(0)
+            as ImageViewerAdapter.ViewHolder
+        assertTrue(page.binding.errorText.isVisible)
+
+        online = true
+        var changedInCallback = false
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                changedInCallback = changedInCallback || inScrollCallback
+            }
+        })
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                inScrollCallback = true
+                adapter.reloadIfFailed(0)
+                inScrollCallback = false
+            }
+        })
+        ShadowLog.clear()
+        // Part of a swipe, so the page stays laid out.
+        recyclerView.scrollBy(50, 0)
+        idle()
+
+        assertFalse(changedInCallback)
+        assertTrue(
+            ShadowLog.getLogs().none { it.msg.orEmpty().contains("in a scroll callback") }
+        )
+        val reloaded = recyclerView.findViewHolderForAdapterPosition(0)
+            as ImageViewerAdapter.ViewHolder
+        assertFalse(reloaded.binding.errorText.isVisible)
+    }
+
+    private var inScrollCallback = false
 }
