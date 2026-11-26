@@ -35,8 +35,8 @@ android {
         // Not supporting the ACCESS_LOCAL_NETWORK runtime permission yet.
         //noinspection OldTargetApi
         targetSdk 36
-        versionCode 88
-        versionName '2.1.11'
+        versionCode 89
+        versionName '2.1.12-rc1'
         resValue 'string', 'app_version', versionName + ' (' + versionCode + ')'
         buildConfigField 'String', 'FILE_PROVIDIER_AUTHORITY', 'APPLICATION_ID + ".file_provider"'
         resValue 'string', 'app_provider_authority', applicationId + '.app_provider'
@@ -166,8 +166,10 @@ dependencies {
     // SMBJ 0.12.0 broke anonymous authentication: https://github.com/hierynomus/smbj/issues/792 ,
     // and it's still an issue in 0.14.0 according to
     // https://github.com/hierynomus/smbj/issues/792#issuecomment-2548018378 .
+    // SMBJ 0.15.0 (Dependabot) is deferred: it changes the write() return type to Long (needs code
+    // changes) and pulls in bcprov-jdk18on, and it needs live SMB testing first.
     //noinspection NewerVersionAvailable
-    implementation ('com.hierynomus:smbj:0.15.0') {
+    implementation ('com.hierynomus:smbj:0.11.5') {
         // org.bouncycastle:bcprov-jdk15on uses bytecode version unsupported by Jetifier, so use
         // org.bouncycastle:bcprov-jdk15to18 instead.
         exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on'
