@@ -21,9 +21,12 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnIm
 import com.davemorrissey.labs.subscaleview.decoder.ImageRegionDecoder
 import java8.nio.file.Path
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import me.zhanghai.android.files.coil.fadeIn
 import me.zhanghai.android.files.databinding.ImageViewerItemBinding
 import me.zhanghai.android.files.ui.SimpleAdapter
@@ -32,6 +35,7 @@ import me.zhanghai.android.files.util.fadeOutUnsafe
 import me.zhanghai.android.files.util.layoutInflater
 import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.shortAnimTime
+import java.util.concurrent.TimeoutException
 import kotlin.math.max
 
 internal class ImageViewerAdapter(
@@ -39,6 +43,7 @@ internal class ImageViewerAdapter(
     private val listener: (View) -> Unit,
     private val preloadGate: NeighborPreloadGate,
     private val newLargeImageDecoder: (Path) -> ImageRegionDecoder = { PathImageRegionDecoder(it) },
+    private val largeImageDecodeTimeoutMillis: Long = LARGE_IMAGE_DECODE_TIMEOUT_MILLIS,
     private val readImageInfo: suspend (Path) -> ImageInfo = {
         withContext(Dispatchers.IO) { it.loadImageInfo() }
     }
@@ -115,7 +120,7 @@ internal class ImageViewerAdapter(
         }
     }
 
-    private fun loadImageWithInfo(
+    private suspend fun loadImageWithInfo(
         binding: ImageViewerItemBinding,
         path: Path,
         imageInfo: ImageInfo
@@ -140,44 +145,102 @@ internal class ImageViewerAdapter(
                 }
             }
         } else {
-            binding.largeImage.apply {
-                setDoubleTapZoomDuration(300)
-                // ORIENTATION_USE_EXIF only works for file URIs, and the view cannot mirror.
-                orientation = imageInfo.largeImageOrientation.rotation
-                scaleX = if (imageInfo.largeImageOrientation.isMirrored) -1f else 1f
-                // Otherwise OnImageEventListener.onReady() is never called.
-                isVisible = true
-                alpha = 0f
-                setOnImageEventListener(object : DefaultOnImageEventListener() {
-                    // With a preview this comes before the full image has loaded.
-                    override fun onReady() {
-                        setDoubleTapZoomScale(binding.largeImage.cropScale)
-                        binding.largeImage.fadeInUnsafe(true)
-                    }
-
-                    override fun onImageLoaded() {
-                        binding.progress.hide()
-                        preloadGate.onPageLoaded(path)
-                    }
-
-                    override fun onImageLoadError(e: Exception) {
-                        e.logFailure(TAG, "Cannot load $path")
-                        showError(binding, path, e)
-                        preloadGate.onPageLoaded(path)
-                    }
-                })
-                // Not our file provider's URI: see PathImageRegionDecoder. The view needs a URI,
-                // and the decoder ignores it.
-                setRegionDecoderFactory { newLargeImageDecoder(path) }
-                val imageSource = ImageSource.uri(LARGE_IMAGE_URI)
-                val previewSource = binding.largeImagePreview(path, imageInfo)
-                if (previewSource != null) {
-                    // A preview needs the dimensions of the image.
-                    imageSource.dimensions(imageInfo.width, imageInfo.height)
-                }
-                setImageRestoringSavedState(imageSource, previewSource)
-            }
+            loadLargeImage(binding, path, imageInfo)
         }
+    }
+
+    /**
+     * Ends in the image or the error page, never in a spinner that stays: the view reports a tile
+     * it cannot decode only as a tile error, and without its base layer it never calls onReady()
+     * or onImageLoaded(). A decoder that does not return at all is given up on after
+     * [largeImageDecodeTimeoutMillis], counted from the first tile so that reading the file over
+     * the network is not part of it.
+     */
+    private suspend fun loadLargeImage(
+        binding: ImageViewerItemBinding,
+        path: Path,
+        imageInfo: ImageInfo
+    ) {
+        val decodeStarted = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        var loaded = false
+        fun fail(e: Exception) {
+            if (!finished.complete(Unit)) {
+                return
+            }
+            e.logFailure(TAG, "Cannot load $path")
+            // Not recycled here: the view's recycle() waits for a tile that is being decoded,
+            // which after a timeout may never return. Recycling the holder does it.
+            binding.largeImage.setOnImageEventListener(null)
+            showError(binding, path, e)
+            preloadGate.onPageLoaded(path)
+        }
+        binding.largeImage.apply {
+            setDoubleTapZoomDuration(300)
+            // ORIENTATION_USE_EXIF only works for file URIs, and the view cannot mirror.
+            orientation = imageInfo.largeImageOrientation.rotation
+            scaleX = if (imageInfo.largeImageOrientation.isMirrored) -1f else 1f
+            // Otherwise OnImageEventListener.onReady() is never called.
+            isVisible = true
+            alpha = 0f
+            setOnImageEventListener(object : DefaultOnImageEventListener() {
+                // With a preview this comes before the full image has loaded.
+                override fun onReady() {
+                    setDoubleTapZoomScale(binding.largeImage.cropScale)
+                    binding.largeImage.fadeInUnsafe(true)
+                }
+
+                override fun onImageLoaded() {
+                    if (!finished.complete(Unit)) {
+                        return
+                    }
+                    loaded = true
+                    binding.progress.hide()
+                    preloadGate.onPageLoaded(path)
+                }
+
+                override fun onImageLoadError(e: Exception) {
+                    fail(e)
+                }
+
+                override fun onTileLoadError(e: Exception) {
+                    if (loaded) {
+                        // A tile for zooming in. The image itself is shown.
+                        e.logFailure(TAG, "Cannot load a tile of $path")
+                        return
+                    }
+                    // A tile of the base layer, e.g. a HEIC the system decoder does not support.
+                    fail(e)
+                }
+            })
+            // Not our file provider's URI: see PathImageRegionDecoder. The view needs a URI,
+            // and the decoder ignores it.
+            setRegionDecoderFactory {
+                FirstTileListeningDecoder(newLargeImageDecoder(path)) {
+                    decodeStarted.complete(Unit)
+                }
+            }
+            val imageSource = ImageSource.uri(LARGE_IMAGE_URI)
+            val previewSource = binding.largeImagePreview(path, imageInfo)
+            if (previewSource != null) {
+                // A preview needs the dimensions of the image.
+                imageSource.dimensions(imageInfo.width, imageInfo.height)
+            }
+            setImageRestoringSavedState(imageSource, previewSource)
+        }
+        // Not drawn yet, e.g. a neighbor off screen, is not a decoder that hangs.
+        select {
+            decodeStarted.onAwait {}
+            finished.onAwait {}
+        }
+        if (finished.isCompleted) {
+            return
+        }
+        withTimeoutOrNull(largeImageDecodeTimeoutMillis) { finished.await() } ?: fail(
+            TimeoutException(
+                "Decoding $path took longer than $largeImageDecodeTimeoutMillis ms"
+            )
+        )
     }
 
     private fun ImageViewerItemBinding.largeImagePreview(
@@ -234,6 +297,9 @@ internal class ImageViewerAdapter(
         private val LARGE_IMAGE_URI: Uri = Uri.parse("mfx-large-image:")
 
         private val PAYLOAD_RELOAD = Any()
+
+        /** Far longer than the base layer of a 100 MP JPEG takes on a slow phone. */
+        private const val LARGE_IMAGE_DECODE_TIMEOUT_MILLIS = 30_000L
     }
 
 }
