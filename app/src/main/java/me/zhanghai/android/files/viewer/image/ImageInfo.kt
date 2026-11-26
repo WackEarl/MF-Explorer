@@ -14,6 +14,7 @@ import me.zhanghai.android.files.file.asMimeTypeOrNull
 import me.zhanghai.android.files.provider.common.AndroidFileTypeDetector
 import me.zhanghai.android.files.provider.common.newInputStream
 import me.zhanghai.android.files.provider.common.readAttributes
+import me.zhanghai.android.files.util.logFailure
 import okio.BufferedSource
 import okio.buffer
 import okio.source
@@ -106,7 +107,7 @@ private fun readImageInfo(
             LargeImageOrientation.read(it.inputStream(), bitmapOptions.outMimeType)
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        e.logFailure("ImageInfo", "Cannot read the image orientation")
         LargeImageOrientation.NORMAL
     }
     return ImageInfo(attributes, width, height, actualMimeType, orientation)

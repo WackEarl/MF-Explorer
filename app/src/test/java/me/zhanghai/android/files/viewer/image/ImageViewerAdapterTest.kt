@@ -9,6 +9,7 @@ import android.os.Looper
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.RecyclerView
 import java8.nio.file.Path
 import java8.nio.file.attribute.BasicFileAttributes
 import java8.nio.file.attribute.FileTime
@@ -86,6 +87,9 @@ class ImageViewerAdapterTest {
     private val showDelay: Long
         get() = activity.resources.getInteger(R.integer.image_viewer_progress_show_delay).toLong()
 
+    private val genericError: String
+        get() = activity.getString(R.string.image_viewer_error)
+
     private fun imageInfo() =
         ImageInfo(attributes, 100, 100, "image/jpeg".asMimeType(), LargeImageOrientation.NORMAL)
 
@@ -107,7 +111,7 @@ class ImageViewerAdapterTest {
         gate.onPageSelected(second)
         adapter.onBindViewHolder(holder, 1)
         idle()
-        assertEquals("java.io.IOException: second failed", holder.binding.errorText.text)
+        assertEquals(genericError, holder.binding.errorText.text)
 
         // A normal image would be handed to the image view if this result were still applied.
         firstInfo.complete(
@@ -115,7 +119,7 @@ class ImageViewerAdapterTest {
         )
         idle()
 
-        assertEquals("java.io.IOException: second failed", holder.binding.errorText.text)
+        assertEquals(genericError, holder.binding.errorText.text)
         assertFalse(holder.binding.image.isVisible)
         assertFalse(holder.binding.largeImage.isVisible)
     }
@@ -134,9 +138,9 @@ class ImageViewerAdapterTest {
         adapter.onBindViewHolder(holder, 0)
         idle()
 
-        assertTrue(holder.binding.errorText.text.contains("read cancelled"))
+        assertEquals(genericError, holder.binding.errorText.text)
         // The neighbor was let through after the current page failed, and failed the same way.
-        assertTrue(neighbor.binding.errorText.text.contains("read cancelled"))
+        assertEquals(genericError, neighbor.binding.errorText.text)
     }
 
     /** Issue #58: a loading indicator over the placeholder, without flashing. */
@@ -268,5 +272,65 @@ class ImageViewerAdapterTest {
         assertFalse(holder.binding.errorText.isVisible)
     }
 
+    /** B2: a neighbor that failed offline loads again when it is shown. */
+    @Test
+    fun aFailedPageLoadsAgainWhenItIsSelected() {
+        val gate = NeighborPreloadGate(first)
+        var online = false
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            if (!online) {
+                throw IOException("offline")
+            }
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        val reloaded = mutableListOf<Int>()
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                assertTrue("reload without a payload", payload != null)
+                repeat(itemCount) { reloaded += positionStart + it }
+            }
+        })
+        val current = holderFor(adapter)
+        val neighbor = holderFor(adapter)
+        adapter.onBindViewHolder(current, 0)
+        adapter.onBindViewHolder(neighbor, 1)
+        idle()
+        assertTrue(neighbor.binding.errorText.isVisible)
 
+        // Back online, swiped to the neighbor: the page is bound again.
+        online = true
+        gate.onPageSelected(second)
+        adapter.reloadIfFailed(1)
+        assertEquals(listOf(1), reloaded)
+        adapter.onBindViewHolder(neighbor, 1)
+        idle()
+        assertFalse(neighbor.binding.errorText.isVisible)
+
+        // A page that did not fail is left alone, and a reload is only asked for once.
+        adapter.reloadIfFailed(1)
+        assertEquals(listOf(1), reloaded)
+    }
+
+    @Test
+    fun aPageThatLoadedIsNotReloaded() {
+        val gate = NeighborPreloadGate(first)
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            CompletableDeferred<ImageInfo>().await()
+        }.apply { replace(listOf(first, second)) }
+        var changes = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                changes++
+            }
+        })
+        adapter.onBindViewHolder(holderFor(adapter), 0)
+        idle()
+
+        adapter.reloadIfFailed(0)
+        adapter.reloadIfFailed(1)
+        // Out of range, e.g. right after a delete.
+        adapter.reloadIfFailed(5)
+
+        assertEquals(0, changes)
+    }
 }

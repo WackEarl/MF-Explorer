@@ -47,6 +47,7 @@ import me.zhanghai.android.files.util.getDimensionPixelSize
 import me.zhanghai.android.files.util.getPackageArchiveInfoCompat
 import me.zhanghai.android.files.util.isGetPackageArchiveInfoCompatible
 import me.zhanghai.android.files.util.isMediaMetadataRetrieverCompatible
+import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.runWithCancellationSignal
 import me.zhanghai.android.files.util.setDataSource
 import me.zhanghai.android.files.util.valueCompat
@@ -120,7 +121,7 @@ class PathAttributesFetcher(
                             path as DocumentResolver.Path, width, height, signal
                         )
                     } catch (e: ResolverException) {
-                        e.printStackTrace()
+                        e.logFailure(TAG, "Cannot get the document thumbnail of $path")
                         null
                     }
                 }
@@ -153,7 +154,7 @@ class PathAttributesFetcher(
                 try {
                     return appIconFetcherFactory.create(path, options, imageLoader).fetch()
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    e.logFailure(TAG, "Cannot load the app icon of $path")
                 }
             }
             mimeType.isImage || mimeType == MimeType.GENERIC -> {
@@ -177,7 +178,7 @@ class PathAttributesFetcher(
                         retriever.setDataSource(path, *openOptions) { job?.isActive == false }
                         true
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        e.logFailure(TAG, "Cannot open $path for its media thumbnail")
                         false
                     }
                     currentCoroutineContext().ensureActive()
@@ -187,7 +188,7 @@ class PathAttributesFetcher(
                     val embeddedPicture = try {
                         retriever.embeddedPicture
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        e.logFailure(TAG, "Cannot read the embedded picture of $path")
                         null
                     }
                     if (embeddedPicture != null) {
@@ -205,7 +206,7 @@ class PathAttributesFetcher(
                         retriever.decodeVideoFrame(options)
                     } catch (e: Exception) {
                         currentCoroutineContext().ensureActive()
-                        e.printStackTrace()
+                        e.logFailure(TAG, "Cannot decode a video frame of $path")
                         null
                     }
                 }
@@ -217,11 +218,15 @@ class PathAttributesFetcher(
                 try {
                     return pdfPageFetcherFactory.create(path, options, imageLoader).fetch()
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    e.logFailure(TAG, "Cannot render the PDF page of $path")
                 }
             }
         }
         return null
+    }
+
+    companion object {
+        private const val TAG = "PathAttributesFetcher"
     }
 
     class Factory(

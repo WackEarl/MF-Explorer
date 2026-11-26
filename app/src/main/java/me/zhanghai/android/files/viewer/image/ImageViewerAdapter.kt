@@ -15,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.imageLoader
 import coil.load
-import coil.size.Size
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.DefaultOnImageEventListener
@@ -31,6 +30,7 @@ import me.zhanghai.android.files.ui.SimpleAdapter
 import me.zhanghai.android.files.util.fadeInUnsafe
 import me.zhanghai.android.files.util.fadeOutUnsafe
 import me.zhanghai.android.files.util.layoutInflater
+import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.shortAnimTime
 import kotlin.math.max
 
@@ -47,6 +47,21 @@ internal class ImageViewerAdapter(
         get() = true
 
     override fun getItemId(position: Int): Long = getItem(position).hashCode().toLong()
+
+    /** Pages whose last load failed, e.g. a neighbor preloaded while the share was offline. */
+    private val failedPaths = mutableSetOf<Path>()
+
+    /**
+     * Loads the page at [position] again if its last load failed, so a page that is shown again
+     * does not keep an error from an earlier attempt. Called when the page is selected.
+     */
+    fun reloadIfFailed(position: Int) {
+        val path = list.getOrNull(position) ?: return
+        if (failedPaths.remove(path)) {
+            // A payload keeps the same holder instead of a change animation with a new one.
+            notifyItemChanged(position, PAYLOAD_RELOAD)
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
         ViewHolder(ImageViewerItemBinding.inflate(parent.context.layoutInflater, parent, false))
@@ -72,6 +87,7 @@ internal class ImageViewerAdapter(
 
     private fun loadImage(holder: ViewHolder, path: Path) {
         val binding = holder.binding
+        failedPaths.remove(path)
         binding.image.dispose()
         binding.largeImage.setOnImageEventListener(null)
         binding.largeImage.recycle()
@@ -90,8 +106,8 @@ internal class ImageViewerAdapter(
                 }
                 // Includes a CancellationException from the read itself, which must not leave
                 // the page loading forever and its neighbors waiting.
-                e.printStackTrace()
-                showError(binding, e)
+                e.logFailure(TAG, "Cannot read the image info of $path")
+                showError(binding, path, e)
                 preloadGate.onPageLoaded(path)
                 return@launch
             }
@@ -108,18 +124,16 @@ internal class ImageViewerAdapter(
             binding.image.apply {
                 isVisible = true
                 load(path to imageInfo.attributes) {
-                    size(Size.ORIGINAL)
+                    fullImage(path, imageInfo.attributes)
                     fadeIn(context.shortAnimTime)
-                    placeholderMemoryCacheKey(
-                        ThumbnailPlaceholder.memoryCacheKey(path, imageInfo.attributes)
-                    )
                     listener(
                         onSuccess = { _, _ ->
                             binding.progress.hide()
                             preloadGate.onPageLoaded(path)
                         },
                         onError = { _, result ->
-                            showError(binding, result.throwable)
+                            result.throwable.logFailure(TAG, "Cannot load $path")
+                            showError(binding, path, result.throwable)
                             preloadGate.onPageLoaded(path)
                         }
                     )
@@ -147,8 +161,8 @@ internal class ImageViewerAdapter(
                     }
 
                     override fun onImageLoadError(e: Exception) {
-                        e.printStackTrace()
-                        showError(binding, e)
+                        e.logFailure(TAG, "Cannot load $path")
+                        showError(binding, path, e)
                         preloadGate.onPageLoaded(path)
                     }
                 })
@@ -184,7 +198,7 @@ internal class ImageViewerAdapter(
             }
         } catch (e: Exception) {
             // Only a placeholder.
-            e.printStackTrace()
+            e.logFailure(TAG, "Cannot use the thumbnail of $path as a preview")
             null
         }
     }
@@ -201,9 +215,10 @@ internal class ImageViewerAdapter(
             return max(viewWidth.toFloat() / imageWidth, viewHeight.toFloat() / imageHeight)
         }
 
-    private fun showError(binding: ImageViewerItemBinding, throwable: Throwable) {
+    private fun showError(binding: ImageViewerItemBinding, path: Path, throwable: Throwable) {
+        failedPaths.add(path)
         binding.progress.hide()
-        binding.errorText.text = throwable.toString()
+        binding.errorText.text = throwable.toImageErrorMessage(binding.root.context)
         binding.errorText.fadeInUnsafe(true)
         binding.image.isVisible = false
         binding.largeImage.isVisible = false
@@ -214,7 +229,11 @@ internal class ImageViewerAdapter(
     }
 
     companion object {
+        private const val TAG = "ImageViewerAdapter"
+
         private val LARGE_IMAGE_URI: Uri = Uri.parse("mfx-large-image:")
+
+        private val PAYLOAD_RELOAD = Any()
     }
 
 }

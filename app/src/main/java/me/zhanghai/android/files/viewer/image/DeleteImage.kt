@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.files.provider.common.delete
+import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.toUserMessage
 import java.io.IOException
 
@@ -28,7 +29,7 @@ internal suspend fun deleteImage(
             delete(path)
             null
         } catch (e: IOException) {
-            e.printStackTrace()
+            e.logFailure("DeleteImage", "Cannot delete $path")
             e.toUserMessage()
         }
     }

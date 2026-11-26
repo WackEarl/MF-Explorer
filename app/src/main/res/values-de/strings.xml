@@ -615,6 +615,7 @@
     <string name="archive_viewer_title">Archivbetrachter</string>
     <string name="image_viewer_title">Bildbetrachter</string>
     <string name="image_viewer_subtitle_format">%1$,d/%2$,d</string>
+    <string name="image_viewer_error">Das Bild kann nicht angezeigt werden</string>
     <string name="save_as_title">Speichern als</string>
     <string name="save_as_error">Fehler beim Speichern der Datei</string>
     <string name="save_as_success_format">\"%1$s\" wurde als \"%2$s\" gespeichert</string>
