@@ -281,6 +281,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         binding.recyclerView.layoutManager = layoutManager
         adapter = FileListAdapter(this)
         binding.recyclerView.adapter = adapter
+        // Thumbnails that failed while the share was unreachable load again once it may be back.
+        viewLifecycleOwner.lifecycle.addObserver(
+            NetworkAvailableObserver(activity.applicationContext) {
+                adapter.retryFailedThumbnails()
+            }
+        )
         val fastScroller = ThemedFastScroller.create(binding.recyclerView)
         binding.recyclerView.setOnApplyWindowInsetsListener(
             ScrollingViewOnApplyWindowInsetsListener(binding.recyclerView, fastScroller)
@@ -438,6 +444,8 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
 
     override fun onResume() {
         super.onResume()
+
+        adapter.retryFailedThumbnails()
 
         if (!viewModel.isNotificationPermissionRequested) {
             ensureStorageAccess()
