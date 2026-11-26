@@ -15,6 +15,7 @@ import me.zhanghai.android.files.util.Failure
 import me.zhanghai.android.files.util.Loading
 import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
+import me.zhanghai.android.files.util.logFailure
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 
@@ -39,7 +40,7 @@ class SearchFileListLiveData(
                         val fileItem = try {
                             path.loadFileItem()
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            e.logFailure(TAG, "Cannot load search result $path")
                             continue
                         }
                         fileList.add(fileItem)
@@ -48,7 +49,7 @@ class SearchFileListLiveData(
                 }
                 postValue(Success(fileList.toList()))
             } catch (e: Exception) {
-                e.printStackTrace()
+                e.logFailure(TAG, "Cannot search $path")
                 postValue(Failure(value?.value ?: fileList.toList(), e))
             }
         }
@@ -65,6 +66,8 @@ class SearchFileListLiveData(
     }
 
     companion object {
+        private const val TAG = "SearchFileListLiveData"
+
         private const val INTERVAL_MILLIS = 500L
     }
 }

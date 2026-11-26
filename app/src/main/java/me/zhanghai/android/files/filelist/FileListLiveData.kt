@@ -16,6 +16,7 @@ import me.zhanghai.android.files.util.Failure
 import me.zhanghai.android.files.util.Loading
 import me.zhanghai.android.files.util.Stateful
 import me.zhanghai.android.files.util.Success
+import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.valueCompat
 import java.io.IOException
 import java.util.concurrent.ExecutorService
@@ -47,16 +48,16 @@ class FileListLiveData(private val path: Path) : CloseableLiveData<Stateful<List
                         } catch (e: DirectoryIteratorException) {
                             // TODO: Ignoring such a file can be misleading and we need to support
                             //  files without information.
-                            e.printStackTrace()
+                            e.logFailure(TAG, "Cannot load $path")
                         } catch (e: IOException) {
-                            e.printStackTrace()
+                            e.logFailure(TAG, "Cannot load $path")
                         }
                     }
                     Success(fileList as List<FileItem>)
                 }
             } catch (e: Exception) {
                 // Log once where the listing fails, not each time a cached failure is shown.
-                e.printStackTrace()
+                e.logFailure(TAG, "Cannot list $path")
                 Failure(valueCompat.value, e)
             }
             postValue(value)
@@ -87,5 +88,9 @@ class FileListLiveData(private val path: Path) : CloseableLiveData<Stateful<List
         closed = true
         observer.close()
         future?.cancel(true)
+    }
+
+    companion object {
+        private const val TAG = "FileListLiveData"
     }
 }

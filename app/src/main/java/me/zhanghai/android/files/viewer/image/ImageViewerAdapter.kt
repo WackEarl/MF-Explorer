@@ -30,6 +30,7 @@ import me.zhanghai.android.files.ui.SimpleAdapter
 import me.zhanghai.android.files.util.fadeInUnsafe
 import me.zhanghai.android.files.util.fadeOutUnsafe
 import me.zhanghai.android.files.util.layoutInflater
+import me.zhanghai.android.files.util.logFailure
 import me.zhanghai.android.files.util.shortAnimTime
 import kotlin.math.max
 
@@ -105,7 +106,7 @@ internal class ImageViewerAdapter(
                 }
                 // Includes a CancellationException from the read itself, which must not leave
                 // the page loading forever and its neighbors waiting.
-                e.printStackTrace()
+                e.logFailure(TAG, "Cannot read the image info of $path")
                 showError(binding, path, e)
                 preloadGate.onPageLoaded(path)
                 return@launch
@@ -131,6 +132,7 @@ internal class ImageViewerAdapter(
                             preloadGate.onPageLoaded(path)
                         },
                         onError = { _, result ->
+                            result.throwable.logFailure(TAG, "Cannot load $path")
                             showError(binding, path, result.throwable)
                             preloadGate.onPageLoaded(path)
                         }
@@ -159,7 +161,7 @@ internal class ImageViewerAdapter(
                     }
 
                     override fun onImageLoadError(e: Exception) {
-                        e.printStackTrace()
+                        e.logFailure(TAG, "Cannot load $path")
                         showError(binding, path, e)
                         preloadGate.onPageLoaded(path)
                     }
@@ -196,7 +198,7 @@ internal class ImageViewerAdapter(
             }
         } catch (e: Exception) {
             // Only a placeholder.
-            e.printStackTrace()
+            e.logFailure(TAG, "Cannot use the thumbnail of $path as a preview")
             null
         }
     }
@@ -227,6 +229,8 @@ internal class ImageViewerAdapter(
     }
 
     companion object {
+        private const val TAG = "ImageViewerAdapter"
+
         private val LARGE_IMAGE_URI: Uri = Uri.parse("mfx-large-image:")
 
         private val PAYLOAD_RELOAD = Any()
