@@ -533,4 +533,126 @@ class ImageViewerAdapterTest {
     }
 
     private var inScrollCallback = false
+
+    /** A large image decoder whose tiles are one color, and whose init can be held back. */
+    private class ColorDecoder(
+        private val color: Int,
+        private val initGate: CountDownLatch? = null
+    ) : ImageRegionDecoder {
+        @Volatile
+        private var ready = false
+        val tiles = java.util.concurrent.atomic.AtomicInteger()
+        val recycled = java.util.concurrent.atomic.AtomicBoolean()
+
+        override fun init(context: Context, uri: Uri): Point {
+            initGate?.await(30, TimeUnit.SECONDS)
+            ready = true
+            // Both like a 61 MP A7R V frame, so the view does not reset on a size change.
+            return Point(9504, 6336)
+        }
+
+        override fun decodeRegion(sRect: Rect, sampleSize: Int): Bitmap {
+            tiles.incrementAndGet()
+            return Bitmap.createBitmap(
+                maxOf(1, sRect.width() / sampleSize), maxOf(1, sRect.height() / sampleSize),
+                Bitmap.Config.ARGB_8888
+            ).apply { eraseColor(color) }
+        }
+
+        override fun isReady(): Boolean = ready
+
+        override fun recycle() {
+            ready = false
+            recycled.set(true)
+        }
+    }
+
+    /**
+     * B7: swiping fast through large images reuses a page's view while the decoder of its
+     * previous image is still reading the file. That decoder must not end up in the view and
+     * show the previous image on the new page.
+     */
+    @Test
+    fun aDecoderOfThePreviousImageNeverShowsOnTheReboundPage() {
+        val gate = NeighborPreloadGate(first)
+        val previousInit = CountDownLatch(1)
+        val previous = ColorDecoder(android.graphics.Color.RED, previousInit)
+        val current = ColorDecoder(android.graphics.Color.GREEN)
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate,
+            newLargeImageDecoder = { path -> if (path === first) previous else current }
+        ) {
+            ImageInfo(
+                datedAttributes, 9504, 6336, "image/jpeg".asMimeType(),
+                LargeImageOrientation.NORMAL
+            )
+        }.apply { replace(listOf(first, second)) }
+        val holder = attachedHolderFor(adapter)
+        try {
+            adapter.onBindViewHolder(holder, 0)
+            idle()
+            // Swiped on before the first image was read: the view is bound to the next one.
+            gate.onPageSelected(second)
+            adapter.onBindViewHolder(holder, 1)
+            drawUntil(holder.binding.root) { current.tiles.get() > 0 }
+            assertTrue(current.tiles.get() > 0)
+            val currentTiles = current.tiles.get()
+
+            // Now the read of the first image finishes.
+            previousInit.countDown()
+            drawUntil(holder.binding.root, timeoutMillis = 2_000) { previous.tiles.get() > 0 }
+            idle()
+
+            assertEquals(0, previous.tiles.get())
+            assertTrue(previous.recycled.get())
+            assertFalse(current.recycled.get())
+            assertFalse(holder.binding.errorText.isVisible)
+            assertTrue(current.tiles.get() >= currentTiles)
+        } finally {
+            previousInit.countDown()
+        }
+    }
+
+    /** B7 as seen: the previous image's read finishes first, before the current one's. */
+    @Test
+    fun aDecoderOfThePreviousImageThatFinishesFirstIsNotShown() {
+        val gate = NeighborPreloadGate(first)
+        val previousInit = CountDownLatch(1)
+        val currentInit = CountDownLatch(1)
+        val previous = ColorDecoder(android.graphics.Color.RED, previousInit)
+        val current = ColorDecoder(android.graphics.Color.GREEN, currentInit)
+        val adapter = ImageViewerAdapter(
+            activity, {}, gate,
+            newLargeImageDecoder = { path -> if (path === first) previous else current }
+        ) {
+            ImageInfo(
+                datedAttributes, 9504, 6336, "image/jpeg".asMimeType(),
+                LargeImageOrientation.NORMAL
+            )
+        }.apply { replace(listOf(first, second)) }
+        val holder = attachedHolderFor(adapter)
+        try {
+            adapter.onBindViewHolder(holder, 0)
+            idle()
+            gate.onPageSelected(second)
+            adapter.onBindViewHolder(holder, 1)
+            idle()
+
+            previousInit.countDown()
+            drawUntil(holder.binding.root, timeoutMillis = 2_000) { previous.tiles.get() > 0 }
+            assertEquals(0, previous.tiles.get())
+            assertTrue(holder.binding.progress.isVisible || !holder.binding.errorText.isVisible)
+
+            currentInit.countDown()
+            drawUntil(holder.binding.root) { current.tiles.get() > 0 }
+
+            assertTrue(current.tiles.get() > 0)
+            assertEquals(0, previous.tiles.get())
+            assertTrue(previous.recycled.get())
+            assertFalse(holder.binding.errorText.isVisible)
+        } finally {
+            previousInit.countDown()
+            currentInit.countDown()
+        }
+    }
 }
