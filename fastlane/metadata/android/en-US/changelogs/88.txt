@@ -1,0 +1,4 @@
+- Image viewer: full image instead of the list thumbnail after a restart, no wrong image after fast swiping, an error page instead of endless loading, and clearer error texts.
+- Thumbnails and viewer pages that failed while a share was unreachable load again when it is back.
+- Tab bar: tabs no longer scroll away when the bar is not full; the plus button follows the app bar color.
+- Readable text when root access isn't available; the toolbar stays collapsed on theme change.
