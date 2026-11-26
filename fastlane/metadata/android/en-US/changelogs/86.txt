@@ -1,0 +1,2 @@
+- The image viewer shows an error instead of loading forever when a large image cannot be decoded, e.g. a HEIC the device does not support.
+- Clearer error text when root access isn't available.
