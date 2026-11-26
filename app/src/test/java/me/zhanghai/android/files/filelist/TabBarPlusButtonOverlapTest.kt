@@ -74,9 +74,9 @@ class TabBarPlusButtonOverlapTest {
         val contentBounds = tabContentBoundsOnScreen(host.tabLayout)
 
         assertEquals(
-            "tab layout end inset must reserve the plus button width",
+            "tab layout must end beside the plus button",
             plus.width,
-            tabEndPadding(host.tabLayout, layoutDirection)
+            tabEndInset(host, layoutDirection)
         )
         assertTrue(
             "last tab has inverted or empty bounds: $lastBounds",
@@ -195,11 +195,12 @@ class TabBarPlusButtonOverlapTest {
         ShadowLooper.idleMainLooper()
     }
 
-    private fun tabEndPadding(tabLayout: TabLayout, layoutDirection: Int): Int {
+    /** The tab layout ends beside the plus button: by its end margin within the tab bar. */
+    private fun tabEndInset(host: Host, layoutDirection: Int): Int {
         return if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
-            tabLayout.paddingLeft
+            host.tabLayout.left
         } else {
-            tabLayout.paddingRight
+            host.tabBar.width - host.tabLayout.right
         }
     }
 
