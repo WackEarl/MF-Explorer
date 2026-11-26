@@ -28,6 +28,9 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+/** The message when there is no su binary; [toUserMessage] shows a translated text for it. */
+const val ROOT_UNAVAILABLE_MESSAGE = "Root isn't available"
+
 object LibSuFileServiceLauncher {
     private val lock = Any()
 
@@ -56,7 +59,7 @@ object LibSuFileServiceLauncher {
         synchronized(lock) {
             // libsu won't call back when su isn't available.
             if (!isSuAvailable()) {
-                throw RemoteFileSystemException("Root isn't available")
+                throw RemoteFileSystemException(ROOT_UNAVAILABLE_MESSAGE)
             }
             return try {
                 runBlocking {

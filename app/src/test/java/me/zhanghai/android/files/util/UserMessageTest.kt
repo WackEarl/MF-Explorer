@@ -6,8 +6,11 @@
 package me.zhanghai.android.files.util
 
 import android.system.OsConstants
+import com.topjohnwu.superuser.NoShellException
 import java8.nio.file.AccessDeniedException
 import me.zhanghai.android.files.provider.nfs.client.ClientException
+import me.zhanghai.android.files.provider.remote.RemoteFileSystemException
+import me.zhanghai.android.files.provider.root.ROOT_UNAVAILABLE_MESSAGE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -44,6 +47,39 @@ class UserMessageTest {
     @Test
     fun otherProvidersKeepToString() {
         val e = AccessDeniedException("/storage/emulated/0/Android/data")
+        assertEquals(e.toString(), e.toUserMessage())
+    }
+
+    /** B6: Drawer → Root without root showed "…RemoteFileSystemException: Root isn't available". */
+    @Test
+    fun rootThatIsNotAvailableShowsAReadableText() {
+        val e = RemoteFileSystemException(ROOT_UNAVAILABLE_MESSAGE)
+        assertEquals("Root access isn't available", e.toUserMessage())
+        // As it reaches the file list, wrapped by the provider.
+        assertEquals("Root access isn't available", java.io.IOException(e).toUserMessage())
+    }
+
+    @Test
+    fun rootThatIsNotAvailableIsTranslated() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val german = android.content.res.Configuration(context.resources.configuration)
+            .apply { setLocale(java.util.Locale.GERMAN) }
+        assertEquals(
+            "Root-Zugriff ist nicht verfügbar",
+            context.createConfigurationContext(german)
+                .getString(me.zhanghai.android.files.R.string.root_unavailable)
+        )
+    }
+
+    @Test
+    fun deniedRootAccessShowsTheSameText() {
+        val e = RemoteFileSystemException(NoShellException("Unable to create a shell!"))
+        assertEquals("Root access isn't available", e.toUserMessage())
+    }
+
+    @Test
+    fun otherRemoteErrorsKeepToString() {
+        val e = RemoteFileSystemException("libsu binding died")
         assertEquals(e.toString(), e.toUserMessage())
     }
 }

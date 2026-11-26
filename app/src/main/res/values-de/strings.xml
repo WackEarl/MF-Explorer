@@ -540,6 +540,7 @@
     <string name="nfs_error_timeout">Zeitüberschreitung bei der NFS-Anfrage</string>
     <string name="nfs_error_connection_lost">Verbindung zum NFS-Server verloren</string>
     <string name="nfs_error_access_denied">Zugriff auf den NFS-Server verweigert</string>
+    <string name="root_unavailable">Root-Zugriff ist nicht verfügbar</string>
     <string name="nfs_error_server_unreachable">NFS-Server nicht erreichbar</string>
     <string name="nfs_error_export_not_found">NFS-Export nicht gefunden</string>
     <string name="nfs_error_export_refused">NFS-Export nicht gefunden oder für dieses Gerät nicht freigegeben</string>
