@@ -155,18 +155,17 @@ class UiSmokeTest {
             onView(fileName(UiSmokeFixture.FIRST_FOLDER)).check(doesNotExist())
             assertSearchQueryKept(UiSmokeFixture.IMAGE_NAME)
 
-            var backPresses = 0
-            waitUntilCondition("unfiltered list after back") {
-                if (isNamePresent(UiSmokeFixture.FIRST_FOLDER)) {
-                    true
-                } else if (backPresses < 3) {
-                    pressBack()
-                    backPresses++
-                    false
-                } else {
-                    false
-                }
+            // One back hides the IME (if it was up) or collapses the search view. Another
+            // collapses it if it is still expanded. One further back should clear the query.
+            // Do not keep sending Back after that: a spare press would leave the file list.
+            if (isSearchFieldDisplayed()) {
+                pressBack()
+                waitUntilListed(UiSmokeFixture.IMAGE_NAME)
+                onView(fileName(UiSmokeFixture.FIRST_FOLDER)).check(doesNotExist())
+                assertSearchQueryKept(UiSmokeFixture.IMAGE_NAME)
             }
+            pressBack()
+            waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(fileName(UiSmokeFixture.FIRST_FOLDER)).check(matches(isDisplayed()))
         }
     }
@@ -286,10 +285,10 @@ class UiSmokeTest {
 
             openItemMenu(UiSmokeFixture.RENAMED_FILE)
             onView(withText(R.string.copy)).perform(click())
-            waitUntilDisplayed(withText(R.string.paste))
+            waitUntilDisplayed(pasteAction())
             onView(fileName("aaa-01")).perform(click())
             waitUntilDisplayed(breadcrumb("aaa-01"))
-            onView(withText(R.string.paste)).perform(click())
+            onView(pasteAction()).perform(click())
             waitUntilListed(UiSmokeFixture.RENAMED_FILE)
             assertTrue(
                 File(File(UiSmokeFixture.rootDir(), "aaa-01"), UiSmokeFixture.RENAMED_FILE).isFile
@@ -301,10 +300,10 @@ class UiSmokeTest {
             scrollUntilCompletelyDisplayed(fileName(UiSmokeFixture.RENAMED_FILE), fileListRecycler())
             openItemMenu(UiSmokeFixture.RENAMED_FILE)
             onView(withText(R.string.cut)).perform(click())
-            waitUntilDisplayed(withText(R.string.paste))
+            waitUntilDisplayed(pasteAction())
             onView(fileName("aaa-02")).perform(click())
             waitUntilDisplayed(breadcrumb("aaa-02"))
-            onView(withText(R.string.paste)).perform(click())
+            onView(pasteAction()).perform(click())
             waitUntilListed(UiSmokeFixture.RENAMED_FILE)
             waitUntilCondition("moved file exists only in aaa-02") {
                 File(File(UiSmokeFixture.rootDir(), "aaa-02"), UiSmokeFixture.RENAMED_FILE).isFile &&
@@ -462,9 +461,12 @@ class UiSmokeTest {
 
     private fun visibleImage(): Matcher<View> =
         anyOf(
-            allOf(withId(R.id.image), isDisplayed()),
-            allOf(withId(R.id.largeImage), isDisplayed())
+            allOf(withId(R.id.image), isCompletelyDisplayed()),
+            allOf(withId(R.id.largeImage), isCompletelyDisplayed())
         )
+
+    private fun pasteAction(): Matcher<View> =
+        anyOf(withId(R.id.action_paste), withContentDescription(R.string.paste))
 
     private fun openDrawerItem(titleRes: Int) {
         onView(withContentDescription(R.string.open_navigation_drawer)).perform(click())
@@ -603,10 +605,10 @@ class UiSmokeTest {
 
     private fun assertBrokenImagePage(title: String, allowPartialImage: Boolean) {
         waitUntilCondition("viewer settled on $title") {
-            isNameOnScreen(title) && (isErrorTextDisplayed() || isVisibleImageDisplayed())
+            isErrorTextDisplayed() || isVisibleImageDisplayed()
         }
-        onView(withText(title)).check(matches(isDisplayed()))
         onView(allOf(withId(R.id.progress), isDisplayed())).check(doesNotExist())
+        assertEquals(title, visibleToolbarTitle())
         if (allowPartialImage && isVisibleImageDisplayed() && !isErrorTextDisplayed()) {
             return
         }
@@ -641,6 +643,15 @@ class UiSmokeTest {
             )
         }
     }
+
+    private fun isSearchFieldDisplayed(): Boolean =
+        try {
+            onView(allOf(withId(androidx.appcompat.R.id.search_src_text), isDisplayed()))
+                .check(matches(isDisplayed()))
+            true
+        } catch (_: Throwable) {
+            false
+        }
 
     private fun isNamePresent(name: String): Boolean =
         try {
