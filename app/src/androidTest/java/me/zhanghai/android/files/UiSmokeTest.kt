@@ -14,6 +14,7 @@ import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.hasDescendant
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
@@ -25,13 +26,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.material.tabs.TabLayout
 import java8.nio.file.Paths
 import me.zhanghai.android.files.filelist.FileListActivity
+import me.zhanghai.android.files.ui.scrollUntilCompletelyDisplayed
 import me.zhanghai.android.files.ui.waitUntilCompletelyDisplayed
 import me.zhanghai.android.files.ui.waitUntilDisplayed
 import me.zhanghai.android.files.viewer.image.ImageViewerActivity
 import org.hamcrest.CoreMatchers.allOf
 import org.hamcrest.CoreMatchers.anyOf
 import org.hamcrest.Matcher
-import org.hamcrest.Matchers.not
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -54,7 +55,7 @@ class UiSmokeTest {
         launchFileList().use {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.toolbar)).check(matches(isDisplayed()))
-            onView(withId(R.id.recyclerView)).check(matches(isDisplayed()))
+            onView(fileListRecycler()).check(matches(isDisplayed()))
             onView(withId(R.id.breadcrumbLayout)).check(matches(isDisplayed()))
             onView(withId(R.id.tabLayout)).check(matches(isDisplayed()))
             onView(withId(R.id.addTabButton)).check(matches(isDisplayed()))
@@ -131,17 +132,13 @@ class UiSmokeTest {
     fun settingsAndLicensesOpenFromNavigationDrawer() {
         launchFileList().use {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
-            onView(withContentDescription(R.string.open_navigation_drawer)).perform(click())
-            waitUntilDisplayed(drawerItem(R.string.navigation_settings))
-            onView(drawerItem(R.string.navigation_settings)).perform(click())
+            openDrawerItem(R.string.navigation_settings)
             waitUntilDisplayed(withText(R.string.settings_locale_title))
             onView(withText(R.string.settings_interface_title)).check(matches(isDisplayed()))
 
             pressBack()
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
-            onView(withContentDescription(R.string.open_navigation_drawer)).perform(click())
-            waitUntilDisplayed(drawerItem(R.string.navigation_about))
-            onView(drawerItem(R.string.navigation_about)).perform(click())
+            openDrawerItem(R.string.navigation_about)
             waitUntilDisplayed(withId(R.id.licensesLayout))
             onView(withId(R.id.licensesLayout)).perform(scrollTo(), click())
             waitUntilDisplayed(withText(R.string.about_licenses_title))
@@ -160,9 +157,12 @@ class UiSmokeTest {
         ImageViewerActivity.putExtras(intent, listOf(path), 0)
         ActivityScenario.launch<ImageViewerActivity>(intent).use {
             waitUntilDisplayed(
-                anyOf(withId(R.id.image), withId(R.id.largeImage))
+                anyOf(
+                    allOf(withId(R.id.image), isDisplayed()),
+                    allOf(withId(R.id.largeImage), isDisplayed())
+                )
             )
-            onView(withId(R.id.errorText)).check(matches(not(isDisplayed())))
+            onView(allOf(withId(R.id.errorText), isDisplayed())).check(doesNotExist())
             onView(withText(UiSmokeFixture.IMAGE_NAME)).check(matches(isDisplayed()))
         }
     }
@@ -184,12 +184,24 @@ class UiSmokeTest {
             isDescendantOfA(withId(R.id.breadcrumbLayout))
         )
 
+    private fun openDrawerItem(titleRes: Int) {
+        onView(withContentDescription(R.string.open_navigation_drawer)).perform(click())
+        scrollUntilCompletelyDisplayed(drawerItem(titleRes), navigationRecycler())
+        onView(drawerItem(titleRes)).perform(click())
+    }
+
     private fun drawerItem(titleRes: Int): Matcher<View> =
         allOf(
-            withId(R.id.titleText),
-            withText(titleRes),
+            withId(R.id.itemLayout),
+            hasDescendant(withText(titleRes)),
             isDescendantOfA(withId(R.id.navigationFragment))
         )
+
+    private fun fileListRecycler(): Matcher<View> =
+        allOf(withId(R.id.recyclerView), isDescendantOfA(withId(R.id.swipeRefreshLayout)))
+
+    private fun navigationRecycler(): Matcher<View> =
+        allOf(withId(R.id.recyclerView), isDescendantOfA(withId(R.id.navigationFragment)))
 
     private fun tabCount(expected: Int) =
         androidx.test.espresso.ViewAssertion { view, noView ->
