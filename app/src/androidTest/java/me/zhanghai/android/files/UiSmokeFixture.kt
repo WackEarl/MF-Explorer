@@ -1,6 +1,7 @@
 package me.zhanghai.android.files
 
 import android.content.Intent
+import androidx.test.platform.app.InstrumentationRegistry
 import android.graphics.Bitmap
 import android.graphics.Color
 import java8.nio.file.Paths
@@ -73,22 +74,29 @@ object UiSmokeFixture {
 
     fun swipeImageFile(name: String): File = File(rootDir(), name)
 
-    fun saveAppState(): SavedAppState =
-        SavedAppState(
-            openTabs = Settings.FILE_LIST_OPEN_TABS.value,
-            animation = Settings.FILE_LIST_ANIMATION.valueCompat,
-            viewType = Settings.FILE_LIST_VIEW_TYPE.valueCompat,
-            sortOptions = Settings.FILE_LIST_SORT_OPTIONS.valueCompat
-        )
+    fun saveAppState(): SavedAppState {
+        lateinit var state: SavedAppState
+        onMain {
+            state = SavedAppState(
+                openTabs = Settings.FILE_LIST_OPEN_TABS.value,
+                animation = Settings.FILE_LIST_ANIMATION.valueCompat,
+                viewType = Settings.FILE_LIST_VIEW_TYPE.valueCompat,
+                sortOptions = Settings.FILE_LIST_SORT_OPTIONS.valueCompat
+            )
+        }
+        return state
+    }
 
     fun restoreAppState(state: SavedAppState) {
-        Settings.FILE_LIST_OPEN_TABS.putValue(state.openTabs)
-        Settings.FILE_LIST_ANIMATION.putValue(state.animation)
-        Settings.FILE_LIST_VIEW_TYPE.putValue(state.viewType)
-        Settings.FILE_LIST_SORT_OPTIONS.putValue(state.sortOptions)
-        val path = Paths.get(rootDir().absolutePath)
-        PathSettings.getFileListViewType(path).putValue(null)
-        PathSettings.getFileListSortOptions(path).putValue(null)
+        onMain {
+            Settings.FILE_LIST_OPEN_TABS.putValue(state.openTabs)
+            Settings.FILE_LIST_ANIMATION.putValue(state.animation)
+            Settings.FILE_LIST_VIEW_TYPE.putValue(state.viewType)
+            Settings.FILE_LIST_SORT_OPTIONS.putValue(state.sortOptions)
+            val path = Paths.get(rootDir().absolutePath)
+            PathSettings.getFileListViewType(path).putValue(null)
+            PathSettings.getFileListSortOptions(path).putValue(null)
+        }
     }
 
     fun deleteRoot() {
@@ -99,15 +107,17 @@ object UiSmokeFixture {
     }
 
     fun reset() {
-        Settings.FILE_LIST_OPEN_TABS.putValue(null)
-        Settings.FILE_LIST_ANIMATION.putValue(false)
-        Settings.FILE_LIST_VIEW_TYPE.putValue(FileViewType.LIST)
-        Settings.FILE_LIST_SORT_OPTIONS.putValue(
-            FileSortOptions(FileSortOptions.By.NAME, FileSortOptions.Order.ASCENDING, true)
-        )
-        val path = Paths.get(rootDir().absolutePath)
-        PathSettings.getFileListViewType(path).putValue(null)
-        PathSettings.getFileListSortOptions(path).putValue(null)
+        onMain {
+            Settings.FILE_LIST_OPEN_TABS.putValue(null)
+            Settings.FILE_LIST_ANIMATION.putValue(false)
+            Settings.FILE_LIST_VIEW_TYPE.putValue(FileViewType.LIST)
+            Settings.FILE_LIST_SORT_OPTIONS.putValue(
+                FileSortOptions(FileSortOptions.By.NAME, FileSortOptions.Order.ASCENDING, true)
+            )
+            val path = Paths.get(rootDir().absolutePath)
+            PathSettings.getFileListViewType(path).putValue(null)
+            PathSettings.getFileListSortOptions(path).putValue(null)
+        }
         deleteRoot()
         val root = rootDir()
         check(root.mkdirs()) { "Could not create ${root.absolutePath}" }
@@ -159,5 +169,17 @@ object UiSmokeFixture {
             }
         }
         bitmap.recycle()
+    }
+
+    private fun onMain(block: () -> Unit) {
+        var error: Throwable? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            try {
+                block()
+            } catch (throwable: Throwable) {
+                error = throwable
+            }
+        }
+        error?.let { throw it }
     }
 }
