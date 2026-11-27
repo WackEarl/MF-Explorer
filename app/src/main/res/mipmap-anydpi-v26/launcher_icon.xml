@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!--
-  ~ Copyright (c) 2018 Hai Zhang <dreaming.in.code.zh@gmail.com>
-  ~ All Rights Reserved.
+  Launcher icon. The “MF” lettering is Outfit SemiBold converted to paths
+  (SIL Open Font License v1.1, https://github.com/Outfitio/Outfit-Fonts).
   -->
 
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/color_primary_light" />
+    <background android:drawable="@color/launcher_icon_background" />
     <foreground android:drawable="@drawable/launcher_icon_foreground" />
-    <monochrome android:drawable="@drawable/launcher_icon_foreground" />
+    <monochrome android:drawable="@drawable/launcher_icon_monochrome" />
 </adaptive-icon>

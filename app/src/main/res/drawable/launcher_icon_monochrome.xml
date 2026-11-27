@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Launcher icon. The “MF” lettering is Outfit SemiBold converted to paths
+  (SIL Open Font License v1.1, https://github.com/Outfitio/Outfit-Fonts).
+  -->
+
+<vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M30.5,66.5 H77.5 A2.5,2.5 0 0 1 80,69 V70 A2.5,2.5 0 0 1 77.5,72.5 H30.5 A2.5,2.5 0 0 1 28,70 V69 A2.5,2.5 0 0 1 30.5,66.5 Z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M29.5,73.5 H78.5 A2.5,2.5 0 0 1 81,76 V77 A2.5,2.5 0 0 1 78.5,79.5 H29.5 A2.5,2.5 0 0 1 27,77 V76 A2.5,2.5 0 0 1 29.5,73.5 Z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:fillType="evenOdd"
+        android:pathData="M33.5,29 H44.5 A3.5,3.5 0 0 1 48,32.5 V33 A3.5,3.5 0 0 0 51.5,36.5 H72.5 A5.5,5.5 0 0 1 78,42 V62.5 A5.5,5.5 0 0 1 72.5,68 H35.5 A5.5,5.5 0 0 1 30,62.5 V32.5 A3.5,3.5 0 0 1 33.5,29 Z M40.53093883357041 60.0V45.0H42.58463726884779L48.65504978662874 54.735064011379805H47.48684210526316L53.55192034139402 45.0H55.605618776671406V60.0H52.709103840682786V49.98221906116643L53.2798719772404 50.13691322901849L49.049786628734 56.92745376955903H47.086770981507826L42.86201991465149 50.13691322901849L43.42745376955903 49.98221906116643V60.0Z M58.66749644381223 60.0V45.0H61.574679943100996V60.0ZM60.79587482219061 53.849573257467995V51.28378378378378H68.35988620199147V53.849573257467995ZM60.79587482219061 47.56578947368421V45.0H68.71194879089616V47.56578947368421Z" />
+</vector>

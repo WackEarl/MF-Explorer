@@ -244,4 +244,12 @@
         <copyright>Copyright 2003 The Apache Software Foundation</copyright>
         <license>Apache Software License 2.0</license>
     </notice>
+
+    <notice>
+        <name>Outfit</name>
+        <url>https://github.com/Outfitio/Outfit-Fonts</url>
+        <copyright>Copyright 2021 The Outfit Project Authors</copyright>
+        <license>SIL Open Font License v1.1</license>
+    </notice>
+
 </notices>

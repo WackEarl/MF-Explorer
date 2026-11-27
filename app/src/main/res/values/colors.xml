@@ -31,6 +31,8 @@
 
     <color name="shortcut_icon_background">#F5F5F5</color>
 
+    <color name="launcher_icon_background">#1B1740</color>
+
     <color name="file_icon_light_blue">#4B86F0</color>
     <color name="file_icon_blue">#4285F4</color>
     <color name="file_icon_cyan">#24C1E0</color>
