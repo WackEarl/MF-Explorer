@@ -67,7 +67,8 @@ class FileByteChannel(
             source.position(sourcePosition)
             throw e.toIOException()
         }
-        source.position(sourcePosition + bytesWritten)
+        // SMBJ returns a Long, but it can't exceed source.remaining() which is an Int.
+        source.position(sourcePosition + Math.toIntExact(bytesWritten))
     }
 
     @Throws(IOException::class)
