@@ -20,13 +20,9 @@ Connections to FTP, FTPS, SFTP, SMB, WebDAV and NFS are made only to servers tha
 
 The app does not include a setting or mechanism that phones home to a project update or telemetry server of this fork.
 
-## Firebase Analytics and Crashlytics
+## Analytics and crash reporting
 
-Release builds still ship the Firebase Analytics and Crashlytics libraries inherited from Material Files, and the packaged Firebase configuration still refers to the upstream Material Files Firebase project.
-
-Automatic Firebase initialization is disabled (`FirebaseInitProvider` is removed from the manifest). The remaining manual start runs only in a non-debug build, and only if Google Play Services is available and the app is signed with the original Material Files signing certificate. This fork is signed with a different key, so that start does not run and the app does not send Analytics or Crashlytics data.
-
-There is no in-app switch to turn Firebase collection on or off, because collection is not started.
+This fork does not include analytics or crash-reporting libraries, and it does not send usage or crash data to a third-party service.
 
 ## Contact
 
