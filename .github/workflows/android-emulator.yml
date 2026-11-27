@@ -16,12 +16,19 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      inject_app_crash:
+        description: After the tests, crash the app process so the logcat gate can be verified (fails the job)
+        type: boolean
+        default: false
   schedule:
     # 01:00 UTC = 02:00 Europe/Berlin (CET).
     - cron: '0 1 * * *'
 
+# Include the event name so a push to master does not cancel a nightly run
+# (or a manual dispatch) on the same ref.
 concurrency:
-  group: emulator-${{ github.ref }}
+  group: emulator-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -85,6 +92,9 @@ jobs:
     - name: Run instrumented tests
       if: env.RUN_TESTS == 'true'
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      env:
+        # Only the Pixel 6 job honors this; emulator-small does not set it.
+        INJECT_APP_CRASH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.inject_app_crash == 'true' }}
       with:
         api-level: ${{ env.API_LEVEL }}
         target: ${{ env.TARGET }}

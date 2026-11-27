@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import java.io.File
@@ -61,9 +62,7 @@ class FailureArtifactsRule : TestWatcher() {
             // Still try to write the dumps.
         }
         writeShellOutput("dumpsys activity activities", File(dir, "$name-activities.txt"))
-        val remoteDump = "/sdcard/ui-smoke-dump.xml"
-        writeShellOutput("uiautomator dump $remoteDump", File(dir, "$name-dump-log.txt"))
-        writeShellOutput("cat $remoteDump", File(dir, "$name-ui.xml"))
+        dumpUiHierarchy(File(dir, "$name-ui.xml"), File(dir, "$name-dump-log.txt"))
     }
 
     companion object {
@@ -94,13 +93,44 @@ class FailureArtifactsRule : TestWatcher() {
             }.replace(Regex("[^A-Za-z0-9._-]"), "_")
     }
 
-    private fun writeShellOutput(command: String, file: File) {
+    /**
+     * Write the window hierarchy while the activity is still open. `uiautomator dump`
+     * via the shell fails when the instrumentation already holds UiAutomation
+     * (`UiAutomationService already registered`), so prefer [UiDevice.dumpWindowHierarchy]
+     * in-process. Fall back to a device-side file, then `cat`.
+     */
+    private fun dumpUiHierarchy(local: File, logFile: File) {
+        try {
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                .dumpWindowHierarchy(local)
+            if (local.length() > 0L) {
+                return
+            }
+        } catch (_: Throwable) {
+            // Fall back to a shell dump.
+        }
+        val remote = "/sdcard/ui-smoke-dump.xml"
+        writeShellOutput("rm -f $remote", logFile, append = true)
+        writeShellOutput("uiautomator dump $remote", logFile, append = true)
+        if (local.length() == 0L) {
+            writeShellOutput("cat $remote", local)
+        }
+        if (local.length() == 0L) {
+            // Last resort: some images return the dump on stdout.
+            writeShellOutput("uiautomator dump /dev/tty", local)
+        }
+    }
+
+    private fun writeShellOutput(command: String, file: File, append: Boolean = false) {
         val pfd = InstrumentationRegistry.getInstrumentation()
             .uiAutomation
             .executeShellCommand(command)
         ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
-            file.outputStream().use { output ->
-                input.copyTo(output)
+            val bytes = input.readBytes()
+            if (append) {
+                file.appendBytes(bytes)
+            } else {
+                file.writeBytes(bytes)
             }
         }
     }
