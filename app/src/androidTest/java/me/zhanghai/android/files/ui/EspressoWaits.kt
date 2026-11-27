@@ -1,10 +1,15 @@
 package me.zhanghai.android.files.ui
 
 import android.view.View
+import androidx.recyclerview.widget.RecyclerView
+import androidx.test.espresso.AmbiguousViewMatcherException
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.FailureHandler
 import androidx.test.espresso.PerformException
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
+import androidx.test.espresso.ViewInteraction
+import androidx.test.espresso.action.ViewActions.swipeDown
 import androidx.test.espresso.action.ViewActions.swipeUp
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed
@@ -32,9 +37,36 @@ fun waitUntilCompletelyDisplayed(matcher: Matcher<View>, timeoutMs: Long = 15_00
     )
 }
 
+fun waitUntilCondition(
+    description: String,
+    timeoutMs: Long = 15_000L,
+    condition: () -> Boolean
+) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    var lastError: Throwable? = null
+    while (System.currentTimeMillis() < deadline) {
+        try {
+            if (condition()) {
+                return
+            }
+        } catch (error: Throwable) {
+            rethrowIfAmbiguous(error)
+            lastError = error
+        }
+        quietlyOnView(isRoot()).perform(loopMainThreadForAtLeast(50))
+    }
+    throw PerformException.Builder()
+        .withActionDescription("wait until $description")
+        .withViewDescription("root")
+        .withCause(lastError ?: AssertionError("condition was still false after $timeoutMs ms"))
+        .build()
+}
+
 /**
  * Swipe a scrollable container until [item] is completely on screen. Used for drawer rows that
- * sit below the fold on a short emulator display.
+ * sit below the fold and for files created at the end of a long list. Swipes in one direction
+ * first, then the other, so a remembered scroll position or a reversed item order still reaches
+ * the row without oscillating on a short screen.
  */
 fun scrollUntilCompletelyDisplayed(
     item: Matcher<View>,
@@ -42,27 +74,90 @@ fun scrollUntilCompletelyDisplayed(
     timeoutMs: Long = 15_000L
 ) {
     val deadline = System.currentTimeMillis() + timeoutMs
-    var lastError: Throwable? = null
-    while (System.currentTimeMillis() < deadline) {
-        try {
-            onView(allOf(item, isCompletelyDisplayed())).check(matches(isCompletelyDisplayed()))
-            return
-        } catch (error: Throwable) {
-            lastError = error
-            try {
-                onView(container).perform(swipeUp())
-            } catch (_: Throwable) {
-                onView(isRoot()).perform(loopMainThreadForAtLeast(50))
-            }
-        }
+    if (isCompletelyShown(item)) {
+        return
     }
+    val upError = scrollInDirection(item, container, swipeUp(), deadline)
+        ?: return
+    val downError = scrollInDirection(item, container, swipeDown(), deadline)
+        ?: return
     val viewDescription = StringDescription().also { item.describeTo(it) }
     throw PerformException.Builder()
         .withActionDescription("scroll until completely displayed: $viewDescription")
         .withViewDescription("container")
-        .withCause(lastError)
+        .withCause(downError ?: upError)
         .build()
 }
+
+private fun scrollInDirection(
+    item: Matcher<View>,
+    container: Matcher<View>,
+    swipe: ViewAction,
+    deadline: Long
+): Throwable? {
+    var lastError: Throwable? = null
+    var lastOffset: Int? = null
+    var stuckCount = 0
+    while (System.currentTimeMillis() < deadline) {
+        if (isCompletelyShown(item)) {
+            return null
+        }
+        val offsetBefore = verticalScrollOffset(container)
+        try {
+            quietlyOnView(container).perform(swipe)
+        } catch (error: Throwable) {
+            rethrowIfAmbiguous(error)
+            lastError = error
+            quietlyOnView(isRoot()).perform(loopMainThreadForAtLeast(50))
+            continue
+        }
+        val offsetAfter = verticalScrollOffset(container)
+        val settled = offsetAfter != null && (
+            offsetAfter == offsetBefore || offsetAfter == lastOffset
+        )
+        if (settled) {
+            stuckCount++
+            if (stuckCount >= 2) {
+                // Reached the end in this direction; let the caller swipe the other way.
+                return lastError ?: AssertionError("reached the end of the list")
+            }
+        } else {
+            stuckCount = 0
+        }
+        lastOffset = offsetAfter
+    }
+    return if (isCompletelyShown(item)) null else lastError
+        ?: AssertionError("item was still not completely displayed")
+}
+
+private fun verticalScrollOffset(container: Matcher<View>): Int? {
+    var offset: Int? = null
+    try {
+        quietlyOnView(container).check { view, noView ->
+            if (noView != null) {
+                throw noView
+            }
+            offset = when (view) {
+                is RecyclerView -> view.computeVerticalScrollOffset()
+                else -> view.scrollY
+            }
+        }
+    } catch (error: Throwable) {
+        rethrowIfAmbiguous(error)
+        return null
+    }
+    return offset
+}
+
+private fun isCompletelyShown(item: Matcher<View>): Boolean =
+    try {
+        quietlyOnView(allOf(item, isCompletelyDisplayed()))
+            .check(matches(isCompletelyDisplayed()))
+        true
+    } catch (error: Throwable) {
+        rethrowIfAmbiguous(error)
+        false
+    }
 
 private fun waitUntil(
     matcher: Matcher<View>,
@@ -74,11 +169,12 @@ private fun waitUntil(
     var lastError: Throwable? = null
     while (System.currentTimeMillis() < deadline) {
         try {
-            onView(matcher).check(assertion)
+            quietlyOnView(matcher).check(assertion)
             return
         } catch (error: Throwable) {
+            rethrowIfAmbiguous(error)
             lastError = error
-            onView(isRoot()).perform(loopMainThreadForAtLeast(50))
+            quietlyOnView(isRoot()).perform(loopMainThreadForAtLeast(50))
         }
     }
     val viewDescription = StringDescription().also { matcher.describeTo(it) }
@@ -88,6 +184,25 @@ private fun waitUntil(
         .withCause(lastError)
         .build()
 }
+
+private fun rethrowIfAmbiguous(error: Throwable) {
+    var current: Throwable? = error
+    while (current != null) {
+        if (current is AmbiguousViewMatcherException) {
+            throw error
+        }
+        current = current.cause
+    }
+}
+
+/**
+ * Like [onView], but failed checks and actions throw without writing Espresso's default
+ * hierarchy dump. Used in polling loops so a long wait does not flood logcat.
+ */
+fun quietlyOnView(matcher: Matcher<View>): ViewInteraction =
+    onView(matcher).withFailureHandler(quietFailureHandler)
+
+private val quietFailureHandler = FailureHandler { error, _ -> throw error }
 
 fun loopMainThreadForAtLeast(milliseconds: Long): ViewAction =
     object : ViewAction {

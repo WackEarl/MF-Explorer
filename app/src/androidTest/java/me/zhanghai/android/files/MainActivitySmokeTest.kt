@@ -5,12 +5,25 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import me.zhanghai.android.files.filelist.FileListActivity
+import me.zhanghai.android.files.ui.FailureArtifactsRule
+import me.zhanghai.android.files.ui.SystemDialogs
+import me.zhanghai.android.files.ui.useCapturing
 import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
+    @get:Rule
+    val failureArtifacts = FailureArtifactsRule()
+
+    @Before
+    fun setUp() {
+        SystemDialogs.suppressAndDismiss()
+    }
+
     @Test
     fun allFilesAccessIsGranted() {
         assertTrue(
@@ -21,7 +34,7 @@ class MainActivitySmokeTest {
 
     @Test
     fun mainActivityStartsAndResumes() {
-        ActivityScenario.launch(FileListActivity::class.java).use { scenario ->
+        ActivityScenario.launch(FileListActivity::class.java).useCapturing { scenario ->
             assertTrue(scenario.state.isAtLeast(Lifecycle.State.RESUMED))
         }
     }
