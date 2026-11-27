@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  ~ Copyright (c) 2026 Hai Zhang <dreaming.in.code.zh@gmail.com>
+  ~ All Rights Reserved.
+  -->
+
+<resources>
+    <item name="fade_generation" type="id" />
+    <item name="fade_job" type="id" />
+</resources>

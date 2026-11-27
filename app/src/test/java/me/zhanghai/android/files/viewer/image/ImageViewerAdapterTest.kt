@@ -218,6 +218,26 @@ class ImageViewerAdapterTest {
         assertFalse(holder.binding.progress.isVisible)
     }
 
+    /**
+     * A fast read failure calls showError() on the same turn as loadImage()'s fadeOut.
+     * The duration-0 fadeOut must not hide the error page after fadeIn has already run.
+     */
+    @Test
+    fun aFastFailureKeepsTheErrorPageVisibleAfterTheFadeOutEnds() {
+        val gate = NeighborPreloadGate(first)
+        val adapter = ImageViewerAdapter(activity, {}, gate) {
+            throw IOException("broken")
+        }.apply { replace(listOf(first)) }
+        val holder = attachedHolderFor(adapter)
+
+        adapter.onBindViewHolder(holder, 0)
+        advance(activity.resources.getInteger(android.R.integer.config_shortAnimTime).toLong() * 3)
+
+        assertTrue(holder.binding.errorText.isVisible)
+        assertEquals(genericError, holder.binding.errorText.text)
+        assertFalse(holder.binding.progress.isVisible)
+    }
+
     @Test
     fun recyclingHidesTheIndicatorAndCancelsAPendingOne() {
         val gate = NeighborPreloadGate(first)

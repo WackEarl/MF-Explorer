@@ -391,19 +391,10 @@ class UiSmokeTest {
     }
 
     /**
-     * Not run as a [@Test] until the viewer race in
-     * https://vikunja.wack-earl.com/tasks/233 is fixed. The viewer logs "Cannot load"
-     * and calls showError() for kaputt.jpg, but errorText does not stay visible.
-     * loadImage() starts fadeOutUnsafe() on errorText and a fast Coil failure then
-     * calls showError()/fadeInUnsafe(); the earlier fadeOut can finish afterwards
-     * and set the page INVISIBLE. Do not fix the app in this suite PR.
-     *
-     * Neither [@Ignore] nor [Assume] can be used here: the connected-test task
-     * records both as a failure and fails the job. The instrumentation runner does
-     * log "assumption failed" for [Assume], but AGP still writes a <failure> in the
-     * XML and exits non-zero. Keep the method and re-enable it as @Test once #233
-     * is fixed.
+     * R-1: a broken JPEG, a truncated JPEG, and a broken HEIC show a readable
+     * error page (or, for a truncated JPEG, a partial image is also accepted).
      */
+    @Test
     fun imageViewerShowsReadableErrorForBrokenImages() {
         UiSmokeFixture.writeBrokenImages()
         val paths = listOf(
