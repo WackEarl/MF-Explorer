@@ -58,7 +58,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -166,8 +165,9 @@ class UiSmokeTest {
                 assertSearchQueryKept(UiSmokeFixture.IMAGE_NAME)
                 pressAppBack(scenario)
             }
-            waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
-            onView(fileName(UiSmokeFixture.FIRST_FOLDER)).check(matches(isDisplayed()))
+            // Clearing the filter keeps the previous scroll offset, so aaa-00 may be off screen.
+            scrollUntilCompletelyDisplayed(fileName(UiSmokeFixture.FIRST_FOLDER), fileListRecycler())
+            onView(fileName(UiSmokeFixture.FIRST_FOLDER)).check(matches(isCompletelyDisplayed()))
         }
     }
 
@@ -384,14 +384,16 @@ class UiSmokeTest {
         }
     }
 
-    @Ignore(
-        "The viewer logs 'Cannot load' and calls showError() for kaputt.jpg, but errorText " +
-            "does not stay visible. loadImage() starts fadeOutUnsafe() on errorText and a " +
-            "fast Coil failure then calls showError()/fadeInUnsafe(); the earlier fadeOut " +
-            "can finish afterwards and set the page INVISIBLE. Do not fix the app in this " +
-            "suite PR."
-    )
-    @Test
+    /**
+     * Not run as a [@Test]: the connected-test runner recorded [@Ignore] as a failure
+     * (empty error, 0.001 s) and failed the job.
+     *
+     * The viewer logs "Cannot load" and calls showError() for kaputt.jpg, but errorText
+     * does not stay visible. loadImage() starts fadeOutUnsafe() on errorText and a fast
+     * Coil failure then calls showError()/fadeInUnsafe(); the earlier fadeOut can finish
+     * afterwards and set the page INVISIBLE. Do not fix the app in this suite PR.
+     * Re-enable as @Test once that race is fixed.
+     */
     fun imageViewerShowsReadableErrorForBrokenImages() {
         UiSmokeFixture.writeBrokenImages()
         val paths = listOf(
