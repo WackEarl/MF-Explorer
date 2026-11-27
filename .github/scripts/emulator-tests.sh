@@ -27,8 +27,10 @@ status=$?
 # process may already have been closed by ActivityScenario.
 if [[ "${INJECT_APP_CRASH:-}" == "true" ]]; then
     echo "emulator-tests: injecting a FATAL EXCEPTION in me.zhanghai.android.files to verify the logcat gate" >&2
-    # monkey may report "No activities found" after the tests have closed the
-    # app; start the launcher activity explicitly and wait for a pid.
+    # connectedDebugAndroidTest may have uninstalled the app after the suite.
+    # Reinstall the already-built debug APK; do not change application code.
+    ./gradlew installDebug || true
+    # Start the launcher activity explicitly and wait for a pid.
     adb shell am start -W -n me.zhanghai.android.files/me.zhanghai.android.files.filelist.FileListActivity \
         -a android.intent.action.MAIN -c android.intent.category.LAUNCHER || true
     app_pid=""
