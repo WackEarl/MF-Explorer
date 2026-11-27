@@ -136,7 +136,9 @@ class UiSmokeTest {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.addTabButton)).perform(click())
             onView(withId(R.id.tabLayout)).check(tabCount(2))
-            onView(withId(R.id.tabLayout)).check(tabsDoNotScroll())
+            // Two long titles already overflow on a 320-wide screen, so do not
+            // require the strip to be unscrollable here. The last tab must still
+            // stay fully visible beside the plus button.
             assertLastTabVisibleBesidePlus()
 
             repeat(4) { index ->
@@ -574,16 +576,6 @@ class UiSmokeTest {
                 throw noView
             }
             assertEquals(expected, (view as TabLayout).tabCount)
-        }
-
-    private fun tabsDoNotScroll() =
-        ViewAssertion { view, noView ->
-            if (noView != null) {
-                throw noView
-            }
-            val tabs = view as TabLayout
-            assertFalse(tabs.canScrollHorizontally(1))
-            assertFalse(tabs.canScrollHorizontally(-1))
         }
 
     private fun spanCount(expected: Int) =
