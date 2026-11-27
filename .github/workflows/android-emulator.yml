@@ -1,10 +1,18 @@
 name: Android Emulator Tests
 
-# Instrumented tests on an API 34 emulator. Pull requests only: the job needs several minutes
-# and is not run on every push. NFS tests are not part of it (the test server is not reachable
-# from GitHub), those stay on the separate test setup.
+# Instrumented tests on an API 34 emulator.
+# Pull requests and workflow_dispatch run the tests. A push to master only
+# restores or creates the AVD cache, so later PR runs can start from a warm
+# snapshot (Actions caches from a feature branch are not visible to other PRs;
+# the default-branch cache is).
+# NFS tests are not part of it (the test server is not reachable from GitHub);
+# those stay on the separate test setup.
 on:
   pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
 
 concurrency:
   group: emulator-${{ github.ref }}
@@ -19,6 +27,8 @@ jobs:
       API_LEVEL: 34
       TARGET: google_apis
       ARCH: x86_64
+      # Push to master only warms the AVD cache; tests run on PRs and manual runs.
+      RUN_TESTS: ${{ github.event_name != 'push' }}
 
     steps:
     - name: Check out repository
@@ -26,11 +36,13 @@ jobs:
       with:
         submodules: true
     - name: Set up JDK 21
+      if: env.RUN_TESTS == 'true'
       uses: actions/setup-java@v6
       with:
         distribution: 'temurin'
         java-version: '21'
     - name: Set up Gradle
+      if: env.RUN_TESTS == 'true'
       uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       with:
         cache-provider: basic
@@ -61,6 +73,7 @@ jobs:
         disable-animations: false
         script: echo "Generated AVD snapshot for caching."
     - name: Run instrumented tests
+      if: env.RUN_TESTS == 'true'
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       with:
         api-level: ${{ env.API_LEVEL }}
@@ -71,7 +84,7 @@ jobs:
         disable-animations: true
         script: .github/scripts/emulator-tests.sh
     - name: Upload test reports
-      if: always()
+      if: always() && env.RUN_TESTS == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: emulator-test-reports
@@ -81,7 +94,7 @@ jobs:
         if-no-files-found: ignore
         retention-days: 10
     - name: Upload logcat and screenshots
-      if: always()
+      if: always() && env.RUN_TESTS == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: emulator-logcat-screenshots
