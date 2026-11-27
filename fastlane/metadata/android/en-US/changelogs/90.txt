@@ -1,0 +1,3 @@
+- Removed Firebase Analytics and Crashlytics and updated the privacy policy.
+- Updated dependencies, including Kotlin, Gradle, SSHJ and Bouncy Castle.
+- The SMBJ 0.15.0 update is not included; SMB stays on 0.11.5 until it can be tested against live shares.
