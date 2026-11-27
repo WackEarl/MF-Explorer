@@ -38,14 +38,15 @@ class AboutFragment : Fragment() {
         activity.supportActionBar!!.setDisplayHomeAsUpEnabled(true)
         binding.gitHubLayout.setOnClickListener { startActivitySafe(GITHUB_URI.createViewIntent()) }
         binding.licensesLayout.setOnClickListener { LicensesDialogFragment.show(this) }
-//#ifdef NONFREE
         binding.privacyPolicyLayout.isVisible = true
         binding.privacyPolicyLayout.setOnClickListener {
             startActivitySafe(PRIVACY_POLICY_URI.createViewIntent())
         }
-//#endif
         binding.authorNameLayout.setOnClickListener {
             startActivitySafe(AUTHOR_RESUME_URI.createViewIntent())
+        }
+        binding.authorUpstreamLayout.setOnClickListener {
+            startActivitySafe(UPSTREAM_URI.createViewIntent())
         }
         binding.authorGitHubLayout.setOnClickListener {
             startActivitySafe(AUTHOR_GITHUB_URI.createViewIntent())
@@ -58,7 +59,8 @@ class AboutFragment : Fragment() {
     companion object {
         private val GITHUB_URI = Uri.parse("https://github.com/WackEarl/MF-Explorer")
         private val PRIVACY_POLICY_URI =
-            Uri.parse("https://github.com/zhanghai/MaterialFiles/blob/master/PRIVACY.md")
+            Uri.parse("https://github.com/WackEarl/MF-Explorer/blob/master/PRIVACY.md")
+        private val UPSTREAM_URI = Uri.parse("https://github.com/zhanghai/MaterialFiles")
         private val AUTHOR_RESUME_URI = Uri.parse("https://resume.zhanghai.me/")
         private val AUTHOR_GITHUB_URI = Uri.parse("https://github.com/zhanghai")
         private val AUTHOR_TWITTER_URI = Uri.parse("https://twitter.com/zhanghai95")

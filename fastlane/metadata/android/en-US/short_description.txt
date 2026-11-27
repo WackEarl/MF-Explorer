@@ -1,1 +1,1 @@
-Open source Material Design file manager
+Open source file manager, a modified fork of Material Files

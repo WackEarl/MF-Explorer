@@ -1,6 +1,16 @@
 # MF Explorer
 
-A fork of [Material Files](https://github.com/zhanghai/MaterialFiles). The package id is still `me.zhanghai.android.files`, but this fork is signed with a new key, so it does not replace an existing Material Files or debug install.
+A modified fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by [Hai Zhang](https://github.com/zhanghai). The package id is still `me.zhanghai.android.files`, but this fork is signed with a new key, so it does not replace an existing Material Files or debug install.
+
+## Based on Material Files by Hai Zhang
+
+MF Explorer is a modified fork of [Material Files](https://github.com/zhanghai/MaterialFiles), an open source Material Design file manager created by [Hai Zhang](https://github.com/zhanghai).
+
+- Upstream repository: https://github.com/zhanghai/MaterialFiles
+- License: [GNU General Public License v3.0](LICENSE)
+- Author: [Hai Zhang](https://github.com/zhanghai) ([website](https://resume.zhanghai.me/))
+
+This project keeps the original copyright notices and adds its own changes on top. Modifications in this repository are dated 2026.
 
 ## Added in this fork
 
