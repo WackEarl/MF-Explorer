@@ -15,6 +15,7 @@ import com.hierynomus.msfscc.fileinformation.FileStandardInformation
 import com.hierynomus.mssmb2.SMB2CompletionFilter
 import com.hierynomus.mssmb2.SMB2CreateDisposition
 import com.hierynomus.mssmb2.SMB2CreateOptions
+import com.hierynomus.mssmb2.SMB2Dialect
 import com.hierynomus.mssmb2.SMB2MessageCommandCode
 import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.mssmb2.SMBApiException
@@ -59,6 +60,14 @@ object Client {
     // A server that requires encryption rejects a client that never offers it. Same defaults as
     // client, plus encryptData, and only used when the plain session setup fails.
     private val encryptedClient = SMBClient(SmbConfig.builder().withEncryptData(true).build())
+
+    // SMBJ authenticates an anonymous user with a real NTLM null session, which has no session key.
+    // Samba doesn't flag that session as null or guest, so SMBJ then fails deriving the SMB 3
+    // signing key (https://github.com/hierynomus/smbj/issues/792). A null session can't sign or
+    // encrypt anyway, so only offer SMB 2 for it.
+    private val anonymousClient = SMBClient(
+        SmbConfig.builder().withDialects(SMB2Dialect.SMB_2_1, SMB2Dialect.SMB_2_0_2).build()
+    )
 
     private val sessions = mutableMapOf<Authority, Session>()
 
@@ -609,17 +618,26 @@ object Client {
             val password = authenticator.getPassword(authority)
                 ?: throw ClientException("No password found for $authority")
             val hostAddress = resolveHostName(authority.host)
-            val session = try {
-                authenticate(client, authority, hostAddress, password)
-            } catch (e: SMBRuntimeException) {
-                if (e.isCredentialFailure()) {
+            val isAnonymous = authority.username.isEmpty() && password.isEmpty()
+            val session = if (isAnonymous) {
+                try {
+                    authenticate(anonymousClient, authority, hostAddress, password)
+                } catch (e: SMBRuntimeException) {
                     throw ClientException(e)
                 }
-                // Not a rejected account: the server may require an encrypted session.
+            } else {
                 try {
-                    authenticate(encryptedClient, authority, hostAddress, password)
-                } catch (e2: SMBRuntimeException) {
-                    throw ClientException(e2).apply { addSuppressed(e) }
+                    authenticate(client, authority, hostAddress, password)
+                } catch (e: SMBRuntimeException) {
+                    if (e.isCredentialFailure()) {
+                        throw ClientException(e)
+                    }
+                    // Not a rejected account: the server may require an encrypted session.
+                    try {
+                        authenticate(encryptedClient, authority, hostAddress, password)
+                    } catch (e2: SMBRuntimeException) {
+                        throw ClientException(e2).apply { addSuppressed(e) }
+                    }
                 }
             }
             sessions[authority] = session
