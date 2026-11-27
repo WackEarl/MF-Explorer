@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
+cd "$(dirname "$0")"
 
 for dpi in {m,h,xh,xxh,xxxh}dpi; do
     cp "launcher_icon-${dpi}.png" "../app/src/main/res/mipmap-${dpi}/launcher_icon.png"
-    cp "launcher_icon_foreground-${dpi}.png" "../app/src/main/res/mipmap-${dpi}/launcher_icon_foreground.png"
+    cp "launcher_icon_round-${dpi}.png" "../app/src/main/res/mipmap-${dpi}/launcher_icon_round.png"
 done
 
 cp launcher_icon-play.png ../fastlane/metadata/android/en-US/images/icon.png

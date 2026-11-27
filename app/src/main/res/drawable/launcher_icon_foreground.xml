@@ -1,23 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!--
-  ~ Copyright (c) 2026 Hai Zhang <dreaming.in.code.zh@gmail.com>
-  ~ All Rights Reserved.
+  Launcher icon. The “MF” lettering is Outfit SemiBold converted to paths
+  (SIL Open Font License v1.1, https://github.com/Outfitio/Outfit-Fonts).
   -->
 
 <vector
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
     <path
-        android:fillColor="@android:color/white"
-        android:fillType="evenOdd"
-        android:pathData="M54,28A26,26 0,1 1,53.9 28Z M54,37A17,17 0,1 0,54.1 37Z" />
+        android:fillColor="#3A4563"
+        android:pathData="M30.5,66.5 H77.5 A2.5,2.5 0 0 1 80,69 V70 A2.5,2.5 0 0 1 77.5,72.5 H30.5 A2.5,2.5 0 0 1 28,70 V69 A2.5,2.5 0 0 1 30.5,66.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.14"
+        android:pathData="M28.75,67 H79.25 A0.25,0.25 0 0 1 79.5,67.25 V67.25 A0.25,0.25 0 0 1 79.25,67.5 H28.75 A0.25,0.25 0 0 1 28.5,67.25 V67.25 A0.25,0.25 0 0 1 28.75,67 Z" />
+    <path
+        android:fillColor="#2C334A"
+        android:pathData="M37,69 H74.5 A0.5,0.5 0 0 1 75,69.5 V69.5 A0.5,0.5 0 0 1 74.5,70 H37 A0.5,0.5 0 0 1 36.5,69.5 V69.5 A0.5,0.5 0 0 1 37,69 Z" />
+    <path
+        android:fillColor="#3EE0C2"
+        android:pathData="M31,69.5 a1.5,1.5 0 1 1 3,0 a1.5,1.5 0 1 1 -3,0 Z" />
 
     <path
-        android:fillColor="@android:color/white"
-        android:pathData="M54,41L63,60L54,54L45,60Z" />
+        android:fillColor="#4D5A80"
+        android:pathData="M29.5,73.5 H78.5 A2.5,2.5 0 0 1 81,76 V77 A2.5,2.5 0 0 1 78.5,79.5 H29.5 A2.5,2.5 0 0 1 27,77 V76 A2.5,2.5 0 0 1 29.5,73.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.14"
+        android:pathData="M27.75,74 H80.25 A0.25,0.25 0 0 1 80.5,74.25 V74.25 A0.25,0.25 0 0 1 80.25,74.5 H27.75 A0.25,0.25 0 0 1 27.5,74.25 V74.25 A0.25,0.25 0 0 1 27.75,74 Z" />
+    <path
+        android:fillColor="#323A54"
+        android:pathData="M37,76 H75.5 A0.5,0.5 0 0 1 76,76.5 V76.5 A0.5,0.5 0 0 1 75.5,77 H37 A0.5,0.5 0 0 1 36.5,76.5 V76.5 A0.5,0.5 0 0 1 37,76 Z" />
+    <path
+        android:fillColor="#3EE0C2"
+        android:pathData="M31,76.5 a1.5,1.5 0 1 1 3,0 a1.5,1.5 0 1 1 -3,0 Z" />
+
+    <path
+        android:fillColor="#C99A3C"
+        android:pathData="M33.5,30 H44.5 A3.5,3.5 0 0 1 48,33.5 V34 A3.5,3.5 0 0 0 51.5,37.5 H72.5 A5.5,5.5 0 0 1 78,43 V63.5 A5.5,5.5 0 0 1 72.5,69 H35.5 A5.5,5.5 0 0 1 30,63.5 V33.5 A3.5,3.5 0 0 1 33.5,30 Z" />
+    <path
+        android:fillColor="#E8C56A"
+        android:pathData="M33.5,29 H44.5 A3.5,3.5 0 0 1 48,32.5 V33 A3.5,3.5 0 0 0 51.5,36.5 H72.5 A5.5,5.5 0 0 1 78,42 V62.5 A5.5,5.5 0 0 1 72.5,68 H35.5 A5.5,5.5 0 0 1 30,62.5 V32.5 A3.5,3.5 0 0 1 33.5,29 Z" />
+    <path android:pathData="M35.5,37.5 H72.5 A5.5,5.5 0 0 1 78,43 V62.5 A5.5,5.5 0 0 1 72.5,68 H35.5 A5.5,5.5 0 0 1 30,62.5 V43 A5.5,5.5 0 0 1 35.5,37.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="37.5"
+                android:endX="0"
+                android:endY="68">
+                <item
+                    android:offset="0"
+                    android:color="#FFF8E8" />
+                <item
+                    android:offset="1"
+                    android:color="#F1DFB0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.32"
+        android:pathData="M32.5,38.5 H75.5 A0.5,0.5 0 0 1 76,39 V39 A0.5,0.5 0 0 1 75.5,39.5 H32.5 A0.5,0.5 0 0 1 32,39 V39 A0.5,0.5 0 0 1 32.5,38.5 Z" />
+    <path
+        android:fillColor="#1B1740"
+        android:pathData="M40.53093883357041 60.0V45.0H42.58463726884779L48.65504978662874 54.735064011379805H47.48684210526316L53.55192034139402 45.0H55.605618776671406V60.0H52.709103840682786V49.98221906116643L53.2798719772404 50.13691322901849L49.049786628734 56.92745376955903H47.086770981507826L42.86201991465149 50.13691322901849L43.42745376955903 49.98221906116643V60.0Z" />
+    <path
+        android:fillColor="#1B1740"
+        android:pathData="M58.66749644381223 60.0V45.0H61.574679943100996V60.0ZM60.79587482219061 53.849573257467995V51.28378378378378H68.35988620199147V53.849573257467995ZM60.79587482219061 47.56578947368421V45.0H68.71194879089616V47.56578947368421Z" />
 </vector>

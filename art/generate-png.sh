@@ -1,26 +1,19 @@
 #!/bin/bash
+# Render art PNGs from the SVG sources in this directory.
+#
+# The launcher icon’s “MF” lettering is Outfit SemiBold converted to paths
+# (SIL Open Font License v1.1, https://github.com/Outfitio/Outfit-Fonts).
+# Regenerating the launcher PNGs requires rsvg-convert and Python 3 with
+# Pillow. Shortcut and banner PNGs still use Inkscape when it is available.
 set -e
+cd "$(dirname "$0")"
 
-inkscape -o launcher_icon-mdpi.png --export-area=15:15:93:93 -w 48 -h 48 launcher_icon.svg
-inkscape -o launcher_icon-hdpi.png --export-area=15:15:93:93 -w 72 -h 72 launcher_icon.svg
-inkscape -o launcher_icon-xhdpi.png --export-area=15:15:93:93 -w 96 -h 96 launcher_icon.svg
-inkscape -o launcher_icon-xxhdpi.png --export-area=15:15:93:93 -w 144 -h 144 launcher_icon.svg
-inkscape -o launcher_icon-xxxhdpi.png --export-area=15:15:93:93 -w 192 -h 192 launcher_icon.svg
+python3 generate_launcher_png.py
 
-cp launcher_icon.svg launcher_icon-web.svg
-inkscape --batch-process --actions='select:circle;RemoveFilter;FileSave;FileQuit' launcher_icon-web.svg
-inkscape -o launcher_icon-web.png --export-area=18:18:90:90 -w 512 -h 512 launcher_icon-web.svg
-rm launcher_icon-web.svg
-
-cp launcher_icon.svg launcher_icon_foreground.svg
-inkscape --batch-process --actions='select:circle;select:circle-edge-top;select:circle-edge-bottom;EditDelete;select:circle-clip-group;SelectionUnGroup;FileSave;FileQuit' launcher_icon_foreground.svg
-inkscape -o launcher_icon_foreground-mdpi.png -w 108 -h 108 launcher_icon_foreground.svg
-inkscape -o launcher_icon_foreground-hdpi.png -w 162 -h 162 launcher_icon_foreground.svg
-inkscape -o launcher_icon_foreground-xhdpi.png -w 216 -h 216 launcher_icon_foreground.svg
-inkscape -o launcher_icon_foreground-xxhdpi.png -w 324 -h 324 launcher_icon_foreground.svg
-inkscape -o launcher_icon_foreground-xxxhdpi.png -w 432 -h 432 launcher_icon_foreground.svg
-inkscape -o launcher_icon-play.png --export-area=18:18:90:90 -b '#1a73e8' -w 512 -h 512 launcher_icon_foreground.svg
-rm launcher_icon_foreground.svg
+if ! command -v inkscape >/dev/null 2>&1; then
+    echo "inkscape not found; skipping shortcut and banner PNG regeneration" >&2
+    exit 0
+fi
 
 for shortcut in directory downloads file ftp_server; do
     inkscape -o "${shortcut}_shortcut_icon-mdpi.png" --export-area=15:15:93:93 -w 48 -h 48 "${shortcut}_shortcut_icon.svg"
