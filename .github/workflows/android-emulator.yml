@@ -1,0 +1,90 @@
+name: Android Emulator Tests
+
+# Instrumented tests on an API 34 emulator. Pull requests only: the job needs several minutes
+# and is not run on every push. NFS tests are not part of it (the test server is not reachable
+# from GitHub), those stay on the separate test setup.
+on:
+  pull_request:
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      API_LEVEL: 34
+      TARGET: google_apis
+      ARCH: x86_64
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: Set up JDK 21
+      uses: actions/setup-java@v6
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      with:
+        cache-provider: basic
+    # The emulator needs KVM; GitHub-hosted Linux runners provide it but with restricted rights.
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: Restore AVD cache
+      id: avd-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.android/avd/*
+          ~/.android/adb*
+        key: avd-${{ env.API_LEVEL }}-${{ env.TARGET }}-${{ env.ARCH }}-v1
+    # On a cache miss: boot once and save the snapshot, so later runs start from a warm state.
+    - name: Create AVD and generate snapshot for caching
+      if: steps.avd-cache.outputs.cache-hit != 'true'
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      with:
+        api-level: ${{ env.API_LEVEL }}
+        target: ${{ env.TARGET }}
+        arch: ${{ env.ARCH }}
+        force-avd-creation: false
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: false
+        script: echo "Generated AVD snapshot for caching."
+    - name: Run instrumented tests
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      with:
+        api-level: ${{ env.API_LEVEL }}
+        target: ${{ env.TARGET }}
+        arch: ${{ env.ARCH }}
+        force-avd-creation: false
+        emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: true
+        script: .github/scripts/emulator-tests.sh
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: emulator-test-reports
+        path: |
+          app/build/reports/androidTests/
+          app/build/outputs/androidTest-results/
+        if-no-files-found: ignore
+        retention-days: 10
+    - name: Upload logcat and screenshots
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: emulator-logcat-screenshots
+        path: app/build/ci-artifacts/
+        if-no-files-found: ignore
+        retention-days: 10
