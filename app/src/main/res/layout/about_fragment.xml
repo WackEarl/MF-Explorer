@@ -249,7 +249,7 @@
                                 android:layout_height="wrap_content"
                                 android:ellipsize="end"
                                 android:maxLines="1"
-                                android:text="@string/about_author_title"
+                                android:text="@string/about_original_author_title"
                                 android:textAppearance="@style/TextAppearance.AppCompat.Body2"
                                 android:textColor="?android:textColorSecondary" />
                         </LinearLayout>
@@ -280,6 +280,35 @@
                                 android:ellipsize="end"
                                 android:maxLines="1"
                                 android:text="@string/about_author_name_title"
+                                android:textAppearance="?textAppearanceListItem" />
+                        </me.zhanghai.android.foregroundcompat.ForegroundLinearLayout>
+
+                        <me.zhanghai.android.foregroundcompat.ForegroundLinearLayout
+                            android:id="@+id/authorUpstreamLayout"
+                            android:layout_width="match_parent"
+                            android:layout_height="?listPreferredItemHeightSmall"
+                            android:paddingStart="?android:listPreferredItemPaddingStart"
+                            android:paddingEnd="?android:listPreferredItemPaddingEnd"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:foreground="?selectableItemBackground"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="@dimen/icon_size"
+                                android:layout_height="@dimen/icon_size"
+                                android:scaleType="centerCrop"
+                                android:src="@drawable/github_icon_white_24dp"
+                                app:tint="?colorControlNormal" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/content_start_from_screen_edge_margin_minus_24dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="@string/about_upstream_title"
                                 android:textAppearance="?textAppearanceListItem" />
                         </me.zhanghai.android.foregroundcompat.ForegroundLinearLayout>
 

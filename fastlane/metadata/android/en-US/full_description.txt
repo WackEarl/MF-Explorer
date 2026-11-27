@@ -1,6 +1,14 @@
+MF Explorer is a modified fork of Material Files by Hai Zhang.
+
 An open source Material Design file manager.
 
-Features:
+Added in this fork:
+- NFSv3, with pipelined reads
+- Folder tabs that survive a restart
+- Running file jobs in the toolbar
+- Export and import of settings, servers, tabs and folder view
+
+Also included:
 - Open source: Lightweight, clean and secure.
 - Material Design: Follows Material Design guidelines, with attention into details.
 - Breadcrumbs: Navigate in the filesystem with ease.
@@ -9,7 +17,9 @@ Features:
 - NAS support: View and manage files on FTP, SFTP, SMB and WebDAV servers.
 - Themes: Customizable UI colors, plus night mode with optional true black.
 - Linux-aware: Knows symbolic links, file permissions and SELinux context.
-- Robust: Uses Linux system calls under the hood, not yet another ls parser.
-- Well-implemented: Built upon the right things, including Java NIO2 File API and LiveData.
 
+Based on Material Files by Hai Zhang:
 https://github.com/zhanghai/MaterialFiles
+
+This fork:
+https://github.com/WackEarl/MF-Explorer

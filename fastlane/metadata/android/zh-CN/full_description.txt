@@ -1,6 +1,14 @@
+MF Explorer 是 Hai Zhang（张海）所创建的 Material Files 的修改版分支。
+
 一个开源的 Material Design 文件管理器。
 
-特性：
+本分支新增：
+- NFSv3（流水线读取）
+- 重启后仍然保留的文件夹标签页
+- 工具栏中的文件任务
+- 设置、服务器、标签页和文件夹视图的导出与导入
+
+同时包含：
 - 开源：轻量、简洁并且安全。
 - Material Design：遵循 Material Design 规范，并且注重细节。
 - 面包屑导航栏：点击导航栏所显示路径中的任一文件夹即可快速访问。
@@ -9,7 +17,9 @@
 - NAS 支持：查看和管理 FTP、SFTP、SMB 和 WebDAV 服务器上的文件。
 - 主题：可定制的界面颜色，以及可选纯黑的夜间模式。
 - Linux 友好：支持符号链接、文件权限和 SELinux 上下文。
-- 健壮性：使用 Linux 系统调用实现，而不是另一个 ls 解析器。
-- 实现良好：使用正确的方式打造，包括 Java NIO2 文件 API 和 LiveData。
 
+基于 Hai Zhang 的 Material Files：
 https://github.com/zhanghai/MaterialFiles
+
+本分支：
+https://github.com/WackEarl/MF-Explorer

@@ -713,13 +713,14 @@
     <string name="settings_transfer_unsupported">Diese Einstellungsdatei nutzt ein neueres Format und kann nicht gelesen werden</string>
 
     <string name="about_title">Über</string>
-    <string name="about_fork_summary">Ein Fork von Material Files. NFSv3 mit Pipeline-Lesevorgängen, Ordner-Tabs, die einen Neustart überstehen, und Dateivorgänge in der Leiste.</string>
+    <string name="about_fork_summary">Ein modifizierter Fork von Material Files (Originalautor Hai Zhang). NFSv3 mit Pipeline-Lesevorgängen, Ordner-Tabs, die einen Neustart überstehen, und Dateivorgänge in der Leiste.</string>
     <string name="about_version_title">Version</string>
     <string name="about_github_title">Auf GitHub anzeigen</string>
     <string name="about_licenses_title">Lizenzen</string>
     <string name="about_privacy_policy_title">Datenschutzerklärung</string>
-    <string name="about_author_title">Autor</string>
+    <string name="about_original_author_title">Originalautor</string>
     <string name="about_author_name_title">Hai Zhang</string>
+    <string name="about_upstream_title">Material Files auf GitHub</string>
     <string name="about_author_github_title">Auf GitHub folgen</string>
     <string name="about_author_twitter_title">Auf Twitter folgen</string>
 </resources>
