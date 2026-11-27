@@ -17,7 +17,9 @@ import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import me.zhanghai.android.files.R
 import me.zhanghai.android.files.app.inputMethodManager
 
 fun View.doOnGlobalLayout(block: () -> Unit): OneShotGlobalLayoutListener =
@@ -103,6 +105,7 @@ var View.layoutInNavigation: Boolean
     }
 
 suspend fun View.fadeIn(force: Boolean = false) {
+    nextFadeGeneration()
     if (!isVisible) {
         alpha = 0f
         isVisible = true
@@ -121,10 +124,11 @@ suspend fun View.fadeIn(force: Boolean = false) {
 }
 
 fun View.fadeInUnsafe(force: Boolean = false) {
-    GlobalScope.launch(Dispatchers.Main.immediate) { fadeIn(force) }
+    launchFade { fadeIn(force) }
 }
 
 suspend fun View.fadeOut(force: Boolean = false, gone: Boolean = false) {
+    val generation = nextFadeGeneration()
     animate().run {
         alpha(0f)
         if (!(isLaidOut || force) || (!isVisible || alpha == 0f)) {
@@ -136,6 +140,12 @@ suspend fun View.fadeOut(force: Boolean = false, gone: Boolean = false) {
         start()
         awaitEnd()
     }
+    // A newer fadeIn (e.g. showError()) may already have shown this view, or a
+    // duration-0 end may have been posted before that fadeIn replaced the
+    // animator listener. Do not hide in either case.
+    if (generation != fadeGeneration()) {
+        return
+    }
     if (gone) {
         isGone = true
     } else {
@@ -144,7 +154,7 @@ suspend fun View.fadeOut(force: Boolean = false, gone: Boolean = false) {
 }
 
 fun View.fadeOutUnsafe(force: Boolean = false, gone: Boolean = false) {
-    GlobalScope.launch(Dispatchers.Main.immediate) { fadeOut(force, gone) }
+    launchFade { fadeOut(force, gone) }
 }
 
 suspend fun View.fadeToVisibility(visible: Boolean, force: Boolean = false, gone: Boolean = false) {
@@ -156,7 +166,29 @@ suspend fun View.fadeToVisibility(visible: Boolean, force: Boolean = false, gone
 }
 
 fun View.fadeToVisibilityUnsafe(visible: Boolean, force: Boolean = false, gone: Boolean = false) {
-    GlobalScope.launch(Dispatchers.Main.immediate) { fadeToVisibility(visible, force, gone) }
+    launchFade { fadeToVisibility(visible, force, gone) }
+}
+
+private fun View.fadeGeneration(): Int =
+    getTag(R.id.fade_generation) as? Int ?: 0
+
+private fun View.nextFadeGeneration(): Int {
+    val generation = fadeGeneration() + 1
+    setTag(R.id.fade_generation, generation)
+    return generation
+}
+
+/**
+ * One fade at a time: a later fadeIn must cancel an in-flight fadeOut so the
+ * earlier job cannot hide the view after [awaitEnd].
+ */
+private fun View.launchFade(block: suspend () -> Unit) {
+    (getTag(R.id.fade_job) as? Job)?.cancel()
+    animate().cancel()
+    setTag(
+        R.id.fade_job,
+        GlobalScope.launch(Dispatchers.Main.immediate) { block() }
+    )
 }
 
 @SuppressLint("RtlHardcoded")

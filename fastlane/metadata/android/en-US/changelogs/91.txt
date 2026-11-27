@@ -1,0 +1,1 @@
+- Image viewer: the error page stays visible for a broken or truncated image, instead of disappearing after a fade-out.
