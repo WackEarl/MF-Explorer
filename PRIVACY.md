@@ -1,64 +1,33 @@
 # Privacy Policy
 
-Hai Zhang built the Material Files app as an Open Source app. This SERVICE is provided by Hai Zhang at no cost and is intended for use as is.
+MF Explorer is a modified fork of [Material Files](https://github.com/zhanghai/MaterialFiles) by Hai Zhang.
 
-This page is used to inform visitors regarding my policies with the collection, use, and disclosure of Personal Information if anyone decided to use my Service.
+This policy describes what this fork does with data, as implemented in the current source. It does not speak for the original Material Files app or for any other distribution of that project.
 
-If you choose to use my Service, then you agree to the collection and use of information in relation to this policy. The Personal Information that I collect is used for providing and improving the Service. I will not use or share your information with anyone except as described in this Privacy Policy.
+## Data stored on the device
 
-The terms used in this Privacy Policy have the same meanings as in our Terms and Conditions, which is accessible at Material Files unless otherwise defined in this Privacy Policy.
+Settings, bookmarks, folder tabs, folder view and the servers you add (including passwords, SFTP private keys and their passphrases, and WebDAV access tokens) are stored locally on the device.
 
-## Information Collection and Use
+The app does not take part in Android Auto Backup, cloud backup or device-to-device transfer (`android:allowBackup` is false, and the backup and data-extraction rules exclude all app data). To copy settings to another device, use the in-app export. The export file stores server passwords, the FTP server password, SFTP private keys and their passphrases, and WebDAV access tokens in plain text. Anyone who has that file can read them.
 
-For a better experience, while using our Service, I may require you to provide us with certain personally identifiable information. The information that I request will be retained on your device and is not collected by me in any way.
+The app may also keep ordinary local state such as caches and logs on the device. Log output can appear in the system log (logcat).
 
-The app does use third party services that may collect information used to identify you.
+## Network
 
-Link to privacy policy of third party service providers used by the app
+The app has Internet permission so that you can reach file servers and, if you start it, run the built-in FTP server.
 
-- [Google Play Services](https://policies.google.com/privacy)
-- [Google Analytics for Firebase](https://policies.google.com/privacy)
-- [Firebase Crashlytics](https://firebase.google.com/support/privacy)
+Connections to FTP, FTPS, SFTP, SMB, WebDAV and NFS are made only to servers that you add and choose to use. Credentials for those servers stay on the device unless you export them as described above. The built-in FTP server accepts connections only when you start it.
 
-## Log Data
+The app does not include a setting or mechanism that phones home to a project update or telemetry server of this fork.
 
-I want to inform you that whenever you use my Service, in a case of an error in the app I collect data and information (through third party products) on your phone called Log Data. This Log Data may include information such as your device Internet Protocol (“IP”) address, device name, operating system version, the configuration of the app when utilizing my Service, the time and date of your use of the Service, and other statistics.
+## Firebase Analytics and Crashlytics
 
-## Cookies
+Release builds still ship the Firebase Analytics and Crashlytics libraries inherited from Material Files, and the packaged Firebase configuration still refers to the upstream Material Files Firebase project.
 
-Cookies are files with a small amount of data that are commonly used as anonymous unique identifiers. These are sent to your browser from the websites that you visit and are stored on your device's internal memory.
+Automatic Firebase initialization is disabled (`FirebaseInitProvider` is removed from the manifest). The remaining manual start runs only in a non-debug build, and only if Google Play Services is available and the app is signed with the original Material Files signing certificate. This fork is signed with a different key, so that start does not run and the app does not send Analytics or Crashlytics data.
 
-This Service does not use these “cookies” explicitly. However, the app may use third party code and libraries that use “cookies” to collect information and improve their services. You have the option to either accept or refuse these cookies and know when a cookie is being sent to your device. If you choose to refuse our cookies, you may not be able to use some portions of this Service.
+There is no in-app switch to turn Firebase collection on or off, because collection is not started.
 
-## Service Providers
+## Contact
 
-I may employ third-party companies and individuals due to the following reasons:
-
-- To facilitate our Service;
-- To provide the Service on our behalf;
-- To perform Service-related services; or
-- To assist us in analyzing how our Service is used.
-
-I want to inform users of this Service that these third parties have access to your Personal Information. The reason is to perform the tasks assigned to them on our behalf. However, they are obligated not to disclose or use the information for any other purpose.
-
-## Security
-
-I value your trust in providing us your Personal Information, thus we are striving to use commercially acceptable means of protecting it. But remember that no method of transmission over the internet, or method of electronic storage is 100% secure and reliable, and I cannot guarantee its absolute security.
-
-## Links to Other Sites
-
-This Service may contain links to other sites. If you click on a third-party link, you will be directed to that site. Note that these external sites are not operated by me. Therefore, I strongly advise you to review the Privacy Policy of these websites. I have no control over and assume no responsibility for the content, privacy policies, or practices of any third-party sites or services.
-
-## Children’s Privacy
-
-These Services do not address anyone under the age of 13\. I do not knowingly collect personally identifiable information from children under 13\. In the case I discover that a child under 13 has provided me with personal information, I immediately delete this from our servers. If you are a parent or guardian and you are aware that your child has provided us with personal information, please contact me so that I will be able to do necessary actions.
-
-## Changes to This Privacy Policy
-
-I may update our Privacy Policy from time to time. Thus, you are advised to review this page periodically for any changes. I will notify you of any changes by posting the new Privacy Policy on this page. These changes are effective immediately after they are posted on this page.
-
-## Contact Us
-
-If you have any questions or suggestions about my Privacy Policy, do not hesitate to contact me at https://github.com/zhanghai/MaterialFiles.
-
-This privacy policy page was created at [privacypolicytemplate.net](https://privacypolicytemplate.net) and modified/generated by [App Privacy Policy Generator](https://app-privacy-policy-generator.firebaseapp.com/)
+Questions about this policy can be opened as a GitHub issue at https://github.com/WackEarl/MF-Explorer/issues.

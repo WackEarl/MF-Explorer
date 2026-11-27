@@ -61,7 +61,7 @@ class AboutFragment : Fragment() {
     companion object {
         private val GITHUB_URI = Uri.parse("https://github.com/WackEarl/MF-Explorer")
         private val PRIVACY_POLICY_URI =
-            Uri.parse("https://github.com/zhanghai/MaterialFiles/blob/master/PRIVACY.md")
+            Uri.parse("https://github.com/WackEarl/MF-Explorer/blob/master/PRIVACY.md")
         private val UPSTREAM_URI = Uri.parse("https://github.com/zhanghai/MaterialFiles")
         private val AUTHOR_RESUME_URI = Uri.parse("https://resume.zhanghai.me/")
         private val AUTHOR_GITHUB_URI = Uri.parse("https://github.com/zhanghai")
