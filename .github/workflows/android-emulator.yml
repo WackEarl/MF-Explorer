@@ -27,6 +27,8 @@ jobs:
       API_LEVEL: 34
       TARGET: google_apis
       ARCH: x86_64
+      # pixel_6 is 1080x2400; the default AVD was 320x640 and clipped the drawer.
+      PROFILE: pixel_6
       # Push to master only warms the AVD cache; tests run on PRs and manual runs.
       RUN_TESTS: ${{ github.event_name != 'push' }}
 
@@ -59,7 +61,7 @@ jobs:
         path: |
           ~/.android/avd/*
           ~/.android/adb*
-        key: avd-${{ env.API_LEVEL }}-${{ env.TARGET }}-${{ env.ARCH }}-v1
+        key: avd-${{ env.API_LEVEL }}-${{ env.TARGET }}-${{ env.ARCH }}-${{ env.PROFILE }}-v1
     # On a cache miss: boot once and save the snapshot, so later runs start from a warm state.
     - name: Create AVD and generate snapshot for caching
       if: steps.avd-cache.outputs.cache-hit != 'true'
@@ -68,6 +70,7 @@ jobs:
         api-level: ${{ env.API_LEVEL }}
         target: ${{ env.TARGET }}
         arch: ${{ env.ARCH }}
+        profile: ${{ env.PROFILE }}
         force-avd-creation: false
         emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
         disable-animations: false
@@ -79,6 +82,7 @@ jobs:
         api-level: ${{ env.API_LEVEL }}
         target: ${{ env.TARGET }}
         arch: ${{ env.ARCH }}
+        profile: ${{ env.PROFILE }}
         force-avd-creation: false
         emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
         disable-animations: true
