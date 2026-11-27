@@ -23,7 +23,6 @@ import androidx.test.espresso.action.ViewActions.pressImeActionButton
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.action.ViewActions.swipeLeft
-import androidx.test.espresso.action.ViewActions.swipeRight
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.hasDescendant
@@ -43,8 +42,11 @@ import com.google.android.material.tabs.TabLayout
 import java8.nio.file.Paths
 import me.zhanghai.android.files.filelist.FileListActivity
 import me.zhanghai.android.files.ui.FailureArtifactsRule
+import me.zhanghai.android.files.ui.SystemDialogs
+import me.zhanghai.android.files.ui.quietlyOnView
 import me.zhanghai.android.files.ui.resolveOpenWithIfPresent
 import me.zhanghai.android.files.ui.scrollUntilCompletelyDisplayed
+import me.zhanghai.android.files.ui.useCapturing
 import me.zhanghai.android.files.ui.waitUntilCompletelyDisplayed
 import me.zhanghai.android.files.ui.waitUntilCondition
 import me.zhanghai.android.files.ui.waitUntilDisplayed
@@ -52,7 +54,9 @@ import me.zhanghai.android.files.viewer.image.ImageViewerActivity
 import org.hamcrest.CoreMatchers.allOf
 import org.hamcrest.CoreMatchers.anyOf
 import org.hamcrest.Matcher
+import androidx.test.uiautomator.UiDevice
 import org.junit.After
+import org.junit.Assume
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -78,6 +82,7 @@ class UiSmokeTest {
 
     @Before
     fun setUp() {
+        SystemDialogs.suppressAndDismiss()
         savedAppState = UiSmokeFixture.saveAppState()
         UiSmokeFixture.reset()
     }
@@ -92,7 +97,7 @@ class UiSmokeTest {
 
     @Test
     fun appStartsAndListsLocalDirectory() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.toolbar)).check(matches(isDisplayed()))
             onView(fileListRecycler()).check(matches(isDisplayed()))
@@ -108,7 +113,7 @@ class UiSmokeTest {
 
     @Test
     fun plusButtonOpensTabAndSwitchingRestoresPath() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.addTabButton)).perform(click())
             onView(withId(R.id.tabLayout)).check(tabCount(2))
@@ -128,7 +133,7 @@ class UiSmokeTest {
 
     @Test
     fun tabsOverflowKeepsLastTabVisible() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.addTabButton)).perform(click())
             onView(withId(R.id.tabLayout)).check(tabCount(2))
@@ -145,7 +150,7 @@ class UiSmokeTest {
 
     @Test
     fun searchFiltersTheLocalList() {
-        launchFileList().use { scenario ->
+        launchFileList().useCapturing { scenario ->
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.action_search)).perform(click())
             onView(withId(androidx.appcompat.R.id.search_src_text))
@@ -173,7 +178,7 @@ class UiSmokeTest {
 
     @Test
     fun submittedDeepSearchFindsNestedFile() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.action_search)).perform(click())
             onView(withId(androidx.appcompat.R.id.search_src_text))
@@ -185,7 +190,7 @@ class UiSmokeTest {
 
     @Test
     fun breadcrumbNavigatesToParent() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(fileName(UiSmokeFixture.FIRST_FOLDER)).perform(click())
             waitUntilDisplayed(breadcrumb(UiSmokeFixture.FIRST_FOLDER))
@@ -197,7 +202,7 @@ class UiSmokeTest {
 
     @Test
     fun newFolderScrollsIntoView() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(fileName(UiSmokeFixture.NEW_FOLDER)).check(doesNotExist())
 
@@ -217,7 +222,7 @@ class UiSmokeTest {
 
     @Test
     fun createFileAppearsInTheList() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.speedDialView)).perform(click())
             waitUntilDisplayed(withText(R.string.file_list_action_create_file))
@@ -235,7 +240,7 @@ class UiSmokeTest {
 
     @Test
     fun sortByNameDescendingShowsLastFolderFirst() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(withId(R.id.action_view_sort)).perform(click())
             onView(withText(R.string.file_list_action_sort_order_ascending)).perform(click())
@@ -248,7 +253,7 @@ class UiSmokeTest {
 
     @Test
     fun viewTypeSwitchesBetweenGridAndList() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             onView(fileListRecycler()).check(spanCount(1))
 
@@ -268,7 +273,7 @@ class UiSmokeTest {
 
     @Test
     fun localFileOperationsCopyMoveRenameAndDelete() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             createFileFromSpeedDial(UiSmokeFixture.NEW_FILE)
             scrollUntilCompletelyDisplayed(fileName(UiSmokeFixture.NEW_FILE), fileListRecycler())
@@ -328,7 +333,7 @@ class UiSmokeTest {
 
     @Test
     fun settingsAndLicensesOpenFromNavigationDrawer() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             openDrawerItem(R.string.navigation_settings)
             waitUntilDisplayed(withText(R.string.settings_locale_title))
@@ -354,7 +359,7 @@ class UiSmokeTest {
             ImageViewerActivity::class.java
         )
         ImageViewerActivity.putExtras(intent, listOf(path), 0)
-        ActivityScenario.launch<ImageViewerActivity>(intent).use {
+        ActivityScenario.launch<ImageViewerActivity>(intent).useCapturing {
             waitUntilDisplayed(visibleImage())
             onView(allOf(withId(R.id.errorText), isDisplayed())).check(doesNotExist())
             onView(allOf(withId(R.id.progress), isDisplayed())).check(doesNotExist())
@@ -364,7 +369,7 @@ class UiSmokeTest {
 
     @Test
     fun openImageFromFileList() {
-        launchFileList().use {
+        launchFileList().useCapturing {
             waitUntilListed(UiSmokeFixture.FIRST_FOLDER)
             scrollUntilCompletelyDisplayed(fileName(UiSmokeFixture.IMAGE_NAME), fileListRecycler())
             onView(fileName(UiSmokeFixture.IMAGE_NAME)).perform(click())
@@ -385,16 +390,24 @@ class UiSmokeTest {
     }
 
     /**
-     * Not run as a [@Test]: the connected-test runner recorded [@Ignore] as a failure
-     * (empty error, 0.001 s) and failed the job.
+     * Skipped until the viewer race in
+     * [https://vikunja.wack-earl.com/tasks/233] is fixed. The viewer logs
+     * "Cannot load" and calls showError() for kaputt.jpg, but errorText does not stay
+     * visible. loadImage() starts fadeOutUnsafe() on errorText and a fast Coil failure
+     * then calls showError()/fadeInUnsafe(); the earlier fadeOut can finish afterwards
+     * and set the page INVISIBLE. Do not fix the app in this suite PR.
      *
-     * The viewer logs "Cannot load" and calls showError() for kaputt.jpg, but errorText
-     * does not stay visible. loadImage() starts fadeOutUnsafe() on errorText and a fast
-     * Coil failure then calls showError()/fadeInUnsafe(); the earlier fadeOut can finish
-     * afterwards and set the page INVISIBLE. Do not fix the app in this suite PR.
-     * Re-enable as @Test once that race is fixed.
+     * Marked with [Assume] rather than [@Ignore]: the connected-test runner recorded
+     * [@Ignore] as a failure (empty error, 0.001 s) and failed the job. Assume is
+     * reported as skipped and does not count as a failure.
      */
+    @Test
     fun imageViewerShowsReadableErrorForBrokenImages() {
+        Assume.assumeTrue(
+            "Skipped until https://vikunja.wack-earl.com/tasks/233 is fixed: " +
+                "viewer race between showError() and fadeOutUnsafe() hides the error page",
+            false
+        )
         UiSmokeFixture.writeBrokenImages()
         val paths = listOf(
             UiSmokeFixture.brokenJpegFile(),
@@ -406,7 +419,7 @@ class UiSmokeTest {
             ImageViewerActivity::class.java
         )
         ImageViewerActivity.putExtras(intent, paths, 0)
-        ActivityScenario.launch<ImageViewerActivity>(intent).use {
+        ActivityScenario.launch<ImageViewerActivity>(intent).useCapturing {
             assertBrokenImagePage(UiSmokeFixture.BROKEN_JPEG_NAME, allowPartialImage = false)
             onView(withId(R.id.viewPager)).perform(swipeLeft())
             assertBrokenImagePage(UiSmokeFixture.TRUNCATED_JPEG_NAME, allowPartialImage = true)
@@ -426,16 +439,17 @@ class UiSmokeTest {
             ImageViewerActivity::class.java
         )
         ImageViewerActivity.putExtras(intent, paths, 0)
-        ActivityScenario.launch<ImageViewerActivity>(intent).use {
+        ActivityScenario.launch<ImageViewerActivity>(intent).useCapturing {
             waitUntilDisplayed(visibleImage())
             onView(withText(UiSmokeFixture.SWIPE_IMAGES[0].first)).check(matches(isDisplayed()))
 
-            repeat(6) { onView(withId(R.id.viewPager)).perform(swipeLeft()) }
-            repeat(2) { onView(withId(R.id.viewPager)).perform(swipeRight()) }
+            // UiDevice.swipe does not wait for Espresso idle, so a fast fling is possible
+            // even with animations disabled. Four left swipes from index 0 must land on 4.
+            repeat(4) { swipeViewerLeft() }
 
             val started = System.currentTimeMillis()
-            waitUntilCondition("image loaded and progress gone", timeoutMs = 10_000L) {
-                isNameOnScreen(currentSwipeTitle()) &&
+            waitUntilCondition("viewer settled on swipe-04", timeoutMs = 10_000L) {
+                swipeTitleIndex(visibleToolbarTitle()) == 4 &&
                     !isProgressDisplayed() &&
                     isVisibleImageDisplayed()
             }
@@ -448,8 +462,11 @@ class UiSmokeTest {
             val title = visibleToolbarTitle()
             val expected = UiSmokeFixture.SWIPE_IMAGES.find { it.first == title }
             assertTrue("toolbar title $title is not a swipe fixture image", expected != null)
-            val currentIndex = swipeTitleIndex(title)
-            assertTrue("fast swipe did not leave the first page (index=$currentIndex)", currentIndex >= 3)
+            assertEquals(
+                "expected swipe-04 after four fast left swipes, got $title",
+                4,
+                swipeTitleIndex(title)
+            )
             assertVisibleImageColor(expected!!.second)
         }
     }
@@ -460,6 +477,15 @@ class UiSmokeTest {
     private fun pressAppBack(scenario: ActivityScenario<FileListActivity>) {
         scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
+        }
+    }
+
+    private fun swipeViewerLeft() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val width = device.displayWidth
+        val height = device.displayHeight
+        check(device.swipe((width * 4) / 5, height / 2, width / 5, height / 2, 8)) {
+            "UiDevice left swipe failed"
         }
     }
 
@@ -605,7 +631,7 @@ class UiSmokeTest {
     }
 
     private fun assertSearchQueryKept(query: String) {
-        onView(withId(R.id.toolbar)).check { view, noView ->
+        quietlyOnView(withId(R.id.toolbar)).check { view, noView ->
             if (noView != null) {
                 throw noView
             }
@@ -664,7 +690,7 @@ class UiSmokeTest {
 
     private fun isSearchFieldDisplayed(): Boolean =
         try {
-            onView(allOf(withId(androidx.appcompat.R.id.search_src_text), isDisplayed()))
+            quietlyOnView(allOf(withId(androidx.appcompat.R.id.search_src_text), isDisplayed()))
                 .check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
@@ -673,7 +699,7 @@ class UiSmokeTest {
 
     private fun isNamePresent(name: String): Boolean =
         try {
-            onView(allOf(fileName(name), isDisplayed())).check(matches(isDisplayed()))
+            quietlyOnView(allOf(fileName(name), isDisplayed())).check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
             false
@@ -684,7 +710,7 @@ class UiSmokeTest {
             return false
         }
         return try {
-            onView(allOf(withText(name), isDisplayed())).check(matches(isDisplayed()))
+            quietlyOnView(allOf(withText(name), isDisplayed())).check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
             false
@@ -693,7 +719,7 @@ class UiSmokeTest {
 
     private fun isErrorTextDisplayed(): Boolean =
         try {
-            onView(allOf(withId(R.id.errorText), isDisplayed())).check(matches(isDisplayed()))
+            quietlyOnView(allOf(withId(R.id.errorText), isDisplayed())).check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
             false
@@ -701,7 +727,7 @@ class UiSmokeTest {
 
     private fun isVisibleImageDisplayed(): Boolean =
         try {
-            onView(visibleImage()).check(matches(isDisplayed()))
+            quietlyOnView(visibleImage()).check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
             false
@@ -709,7 +735,7 @@ class UiSmokeTest {
 
     private fun isProgressDisplayed(): Boolean =
         try {
-            onView(allOf(withId(R.id.progress), isDisplayed())).check(matches(isDisplayed()))
+            quietlyOnView(allOf(withId(R.id.progress), isDisplayed())).check(matches(isDisplayed()))
             true
         } catch (_: Throwable) {
             false
@@ -723,7 +749,7 @@ class UiSmokeTest {
 
     private fun visibleToolbarTitle(): String {
         var title = ""
-        onView(withId(R.id.toolbar)).check { view, noView ->
+        quietlyOnView(withId(R.id.toolbar)).check { view, noView ->
             if (noView != null) {
                 throw noView
             }
@@ -735,7 +761,7 @@ class UiSmokeTest {
     private fun firstListedName(): String? {
         var name: String? = null
         try {
-            onView(fileListRecycler()).check { view, noView ->
+            quietlyOnView(fileListRecycler()).check { view, noView ->
                 if (noView != null) {
                     throw noView
                 }
@@ -751,7 +777,7 @@ class UiSmokeTest {
 
     private fun listSpanCount(): Int {
         var count = -1
-        onView(fileListRecycler()).check { view, noView ->
+        quietlyOnView(fileListRecycler()).check { view, noView ->
             if (noView != null) {
                 throw noView
             }
