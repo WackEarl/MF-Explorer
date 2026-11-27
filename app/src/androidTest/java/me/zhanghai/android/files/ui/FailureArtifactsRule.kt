@@ -61,8 +61,9 @@ class FailureArtifactsRule : TestWatcher() {
             // Still try to write the dumps.
         }
         writeShellOutput("dumpsys activity activities", File(dir, "$name-activities.txt"))
-        val dumpFile = File(dir, "$name-ui.xml")
-        writeShellOutput("uiautomator dump ${dumpFile.absolutePath}", File(dir, "$name-dump-log.txt"))
+        val remoteDump = "/sdcard/ui-smoke-dump.xml"
+        writeShellOutput("uiautomator dump $remoteDump", File(dir, "$name-dump-log.txt"))
+        writeShellOutput("cat $remoteDump", File(dir, "$name-ui.xml"))
     }
 
     companion object {

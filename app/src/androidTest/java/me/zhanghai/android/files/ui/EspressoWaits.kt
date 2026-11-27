@@ -1,6 +1,7 @@
 package me.zhanghai.android.files.ui
 
 import android.view.View
+import androidx.recyclerview.widget.RecyclerView
 import androidx.test.espresso.AmbiguousViewMatcherException
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.FailureHandler
@@ -95,20 +96,57 @@ private fun scrollInDirection(
     deadline: Long
 ): Throwable? {
     var lastError: Throwable? = null
+    var lastOffset: Int? = null
+    var stuckCount = 0
     while (System.currentTimeMillis() < deadline) {
         if (isCompletelyShown(item)) {
             return null
         }
+        val offsetBefore = verticalScrollOffset(container)
         try {
             quietlyOnView(container).perform(swipe)
         } catch (error: Throwable) {
             rethrowIfAmbiguous(error)
             lastError = error
             quietlyOnView(isRoot()).perform(loopMainThreadForAtLeast(50))
+            continue
         }
+        val offsetAfter = verticalScrollOffset(container)
+        val settled = offsetAfter != null && (
+            offsetAfter == offsetBefore || offsetAfter == lastOffset
+        )
+        if (settled) {
+            stuckCount++
+            if (stuckCount >= 2) {
+                // Reached the end in this direction; let the caller swipe the other way.
+                return lastError ?: AssertionError("reached the end of the list")
+            }
+        } else {
+            stuckCount = 0
+        }
+        lastOffset = offsetAfter
     }
     return if (isCompletelyShown(item)) null else lastError
         ?: AssertionError("item was still not completely displayed")
+}
+
+private fun verticalScrollOffset(container: Matcher<View>): Int? {
+    var offset: Int? = null
+    try {
+        quietlyOnView(container).check { view, noView ->
+            if (noView != null) {
+                throw noView
+            }
+            offset = when (view) {
+                is RecyclerView -> view.computeVerticalScrollOffset()
+                else -> view.scrollY
+            }
+        }
+    } catch (error: Throwable) {
+        rethrowIfAmbiguous(error)
+        return null
+    }
+    return offset
 }
 
 private fun isCompletelyShown(item: Matcher<View>): Boolean =
