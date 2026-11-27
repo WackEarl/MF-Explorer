@@ -27,11 +27,33 @@ status=$?
 # process may already have been closed by ActivityScenario.
 if [[ "${INJECT_APP_CRASH:-}" == "true" ]]; then
     echo "emulator-tests: injecting a FATAL EXCEPTION in me.zhanghai.android.files to verify the logcat gate" >&2
-    adb shell monkey -p me.zhanghai.android.files -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
-    sleep 2
-    adb shell am crash me.zhanghai.android.files || true
-    # Let logcat flush the FATAL block before we stop the capture.
-    sleep 2
+    # monkey may report "No activities found" after the tests have closed the
+    # app; start the launcher activity explicitly and wait for a pid.
+    adb shell am start -W -n me.zhanghai.android.files/me.zhanghai.android.files.filelist.FileListActivity \
+        -a android.intent.action.MAIN -c android.intent.category.LAUNCHER || true
+    app_pid=""
+    for _ in $(seq 1 20); do
+        app_pid=$(adb shell pidof -s me.zhanghai.android.files 2>/dev/null | tr -d '\r')
+        if [[ -n "$app_pid" ]]; then
+            break
+        fi
+        sleep 0.5
+    done
+    if [[ -z "$app_pid" ]]; then
+        echo "emulator-tests: could not start me.zhanghai.android.files for crash injection" >&2
+        status=1
+    else
+        echo "emulator-tests: crashing pid $app_pid" >&2
+        adb shell am crash "$app_pid" || adb shell am crash me.zhanghai.android.files || true
+        # Wait until the FATAL block has landed in the still-open logcat capture.
+        for _ in $(seq 1 15); do
+            if ! awk -f .github/scripts/logcat-crash-gate.awk "$out/logcat.txt"; then
+                echo "emulator-tests: injected FATAL EXCEPTION is visible in logcat" >&2
+                break
+            fi
+            sleep 1
+        done
+    fi
 fi
 
 # Final screen state after the Gradle run. ActivityScenario has already closed
