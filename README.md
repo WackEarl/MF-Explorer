@@ -15,7 +15,7 @@ This project keeps the original copyright notices and adds its own changes on to
 ## Added in this fork
 
 - NFSv3, with pipelined reads
-- Folder tabs that survive a restart
+- Folder tabs that survive a restart (can be turned off in the settings)
 - Running file jobs in the toolbar
 - Export and import of settings, servers, tabs and folder view. The file stores passwords, SFTP private keys and WebDAV tokens in plain text.
 

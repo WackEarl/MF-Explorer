@@ -6,7 +6,7 @@ This policy describes what this fork does with data, as implemented in the curre
 
 ## Data stored on the device
 
-Settings, bookmarks, folder tabs, folder view and the servers you add (including passwords, SFTP private keys and their passphrases, and WebDAV access tokens) are stored locally on the device.
+Settings, bookmarks, folder tabs, folder view and the servers you add (including passwords, SFTP private keys and their passphrases, and WebDAV access tokens) are stored locally on the device. The open folder tabs are only stored while "Restore open tabs" is on; turning it off deletes them.
 
 The app does not take part in Android Auto Backup, cloud backup or device-to-device transfer (`android:allowBackup` is false, and the backup and data-extraction rules exclude all app data). To copy settings to another device, use the in-app export. The export file stores server passwords, the FTP server password, SFTP private keys and their passphrases, and WebDAV access tokens in plain text. Anyone who has that file can read them.
 

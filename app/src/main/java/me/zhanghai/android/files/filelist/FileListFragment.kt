@@ -387,9 +387,9 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
                 viewModel.resetTo(path)
                 viewModel.pickOptions = pickOptions
             } else {
-                val saved = Settings.FILE_LIST_OPEN_TABS.value
+                val saved = OpenTabsPersistence.app.restorable()
                 val explicitPath = path.takeIf { argsPath != null || intent.action == ACTION_VIEW_DOWNLOADS }
-                if (saved != null && saved.paths.isNotEmpty()) {
+                if (saved != null) {
                     viewModel.restoreTabs(saved.paths, saved.selectedIndex)
                     if (explicitPath != null) {
                         viewModel.focusPath(explicitPath)
@@ -410,9 +410,11 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         viewModel.tabsLiveData.observe(viewLifecycleOwner) {
             upCallback.isEnabled = viewModel.canNavigateUpBreadcrumb || viewModel.canCloseTab
             onTabsChanged(it)
-            if (viewModel.pickOptions == null && it.paths.isNotEmpty()) {
-                Settings.FILE_LIST_OPEN_TABS.putValue(OpenTabs(it.paths, it.selectedIndex))
-            }
+            saveOpenTabs(it)
+        }
+        Settings.FILE_LIST_RESTORE_TABS.observe(viewLifecycleOwner) {
+            // Turning it on saves the current tabs right away. The initial call is a no-op write.
+            viewModel.tabsLiveData.value?.let { tabs -> saveOpenTabs(tabs) }
         }
         Settings.BOOKMARK_DIRECTORIES.observe(viewLifecycleOwner) {
             viewModel.tabsLiveData.value?.let { onTabsChanged(it) }
@@ -643,6 +645,12 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         updateSearchBackCallback()
         updateToolbarSubtitle()
+    }
+
+    private fun saveOpenTabs(tabs: FileTabs) {
+        OpenTabsPersistence.app.save(
+            tabs.paths, tabs.selectedIndex, viewModel.pickOptions != null
+        )
     }
 
     private fun onTabsChanged(tabs: FileTabs) {
