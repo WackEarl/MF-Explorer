@@ -412,10 +412,6 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
             onTabsChanged(it)
             saveOpenTabs(it)
         }
-        Settings.FILE_LIST_RESTORE_TABS.observe(viewLifecycleOwner) {
-            // Turning it on saves the current tabs right away. The initial call is a no-op write.
-            viewModel.tabsLiveData.value?.let { tabs -> saveOpenTabs(tabs) }
-        }
         Settings.BOOKMARK_DIRECTORIES.observe(viewLifecycleOwner) {
             viewModel.tabsLiveData.value?.let { onTabsChanged(it) }
         }
@@ -452,6 +448,15 @@ class FileListFragment : Fragment(), BreadcrumbLayout.Listener, FileListAdapter.
         }
         if (!viewModel.isStorageAccessRequested) {
             ensureNotificationPermission()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // A finished picker must not make the app forget the tabs of the main file list.
+        if (requireActivity().isFinishing && viewModel.pickOptions == null) {
+            OpenTabsPersistence.app.forget()
         }
     }
 

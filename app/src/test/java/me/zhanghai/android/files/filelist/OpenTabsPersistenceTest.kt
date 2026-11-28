@@ -130,4 +130,83 @@ class OpenTabsPersistenceTest {
         fixture.persistence.save(paths, 0, picking = false)
         assertEquals(OpenTabs(paths, 0), fixture.stored)
     }
+
+    @Test
+    fun enablingWritesTheTabsThatWereOpenWhileDisabled() {
+        // The file list does not observe the setting while the settings screen is in front of it,
+        // so nothing but onEnabledChanged() can write the tabs when the switch is turned on (F1).
+        val fixture = Fixture(enabled = true)
+        val paths = listOf(nfsPath("/a"), nfsPath("/b"), nfsPath("/c"))
+        fixture.persistence.save(paths, 1, picking = false)
+        fixture.enabled = false
+        fixture.persistence.onEnabledChanged()
+        assertNull(fixture.stored)
+        fixture.enabled = true
+        assertTrue(fixture.persistence.onEnabledChanged())
+        assertEquals(OpenTabs(paths, 1), fixture.stored)
+    }
+
+    @Test
+    fun enablingWritesTabsOpenedWhileDisabledButOnlyOnEnabling() {
+        val fixture = Fixture(enabled = false)
+        val paths = listOf(nfsPath("/a"), nfsPath("/b"))
+        assertFalse(fixture.persistence.save(paths, 0, picking = false))
+        assertNull(fixture.stored)
+        assertEquals(0, fixture.writes)
+        fixture.enabled = true
+        assertTrue(fixture.persistence.onEnabledChanged())
+        assertEquals(OpenTabs(paths, 0), fixture.stored)
+        assertEquals(1, fixture.writes)
+    }
+
+    @Test
+    fun enablingWritesTheLatestTabsNotAnEarlierState() {
+        val fixture = Fixture(enabled = false)
+        fixture.persistence.save(listOf(nfsPath("/a")), 0, picking = false)
+        val latest = listOf(nfsPath("/a"), nfsPath("/b"))
+        fixture.persistence.save(latest, 1, picking = false)
+        fixture.enabled = true
+        fixture.persistence.onEnabledChanged()
+        assertEquals(OpenTabs(latest, 1), fixture.stored)
+    }
+
+    @Test
+    fun enablingWritesNothingWithoutRememberedTabs() {
+        val fixture = Fixture(enabled = true)
+        assertFalse(fixture.persistence.onEnabledChanged())
+        assertEquals(0, fixture.writes)
+    }
+
+    @Test
+    fun enablingWritesNothingAfterForget() {
+        val fixture = Fixture(enabled = false)
+        fixture.persistence.save(listOf(nfsPath("/a")), 0, picking = false)
+        fixture.persistence.forget()
+        fixture.enabled = true
+        assertFalse(fixture.persistence.onEnabledChanged())
+        assertNull(fixture.stored)
+    }
+
+    @Test
+    fun aPickerNeverReplacesTheRememberedTabs() {
+        val fixture = Fixture(enabled = false)
+        val paths = listOf(nfsPath("/a"), nfsPath("/b"))
+        fixture.persistence.save(paths, 0, picking = false)
+        fixture.persistence.save(listOf(nfsPath("/picker")), 0, picking = true)
+        fixture.enabled = true
+        fixture.persistence.onEnabledChanged()
+        assertEquals(OpenTabs(paths, 0), fixture.stored)
+    }
+
+    @Test
+    fun disablingNeverRewritesTabsWhileTheyChange() {
+        val fixture = Fixture(enabled = true)
+        fixture.persistence.save(listOf(nfsPath("/a")), 0, picking = false)
+        fixture.enabled = false
+        fixture.persistence.onEnabledChanged()
+        val writesAfterPurge = fixture.writes
+        fixture.persistence.save(listOf(nfsPath("/a"), nfsPath("/b")), 1, picking = false)
+        assertEquals(writesAfterPurge, fixture.writes)
+        assertNull(fixture.stored)
+    }
 }
