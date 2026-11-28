@@ -20,8 +20,8 @@ android {
         // Not supporting the ACCESS_LOCAL_NETWORK runtime permission yet.
         //noinspection OldTargetApi
         targetSdk 36
-        versionCode 90
-        versionName '2.1.12'
+        versionCode 92
+        versionName '2.1.13-rc2'
         testInstrumentationRunner 'me.zhanghai.android.files.StorageAccessRunner'
         resValue 'string', 'app_version', versionName + ' (' + versionCode + ')'
         buildConfigField 'String', 'FILE_PROVIDIER_AUTHORITY', 'APPLICATION_ID + ".file_provider"'
