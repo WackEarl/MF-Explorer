@@ -43,6 +43,12 @@ object Settings {
     val FILE_LIST_OPEN_TABS: SettingLiveData<OpenTabs?> =
         ParcelValueSettingLiveData(R.string.pref_key_file_list_open_tabs, null)
 
+    val FILE_LIST_RESTORE_TABS: SettingLiveData<Boolean> =
+        BooleanSettingLiveData(
+            R.string.pref_key_file_list_restore_tabs,
+            R.bool.pref_default_value_file_list_restore_tabs
+        )
+
     val FILE_LIST_PERSISTENT_DRAWER_OPEN: SettingLiveData<Boolean> =
         BooleanSettingLiveData(
             R.string.pref_key_file_list_persistent_drawer_open,

@@ -13,6 +13,7 @@ import me.zhanghai.android.files.BuildConfig
 import me.zhanghai.android.files.coil.initializeCoil
 import me.zhanghai.android.files.coil.observeRemoteImageDiskCache
 import me.zhanghai.android.files.filejob.fileJobNotificationTemplate
+import me.zhanghai.android.files.filelist.observeOpenTabsPersistence
 import me.zhanghai.android.files.ftpserver.ftpServerServiceNotificationTemplate
 import me.zhanghai.android.files.hiddenapi.HiddenApi
 import me.zhanghai.android.files.provider.FileSystemProviders
@@ -78,6 +79,7 @@ private fun initializeLiveDataObjects() {
     StorageVolumeListLiveData.value
     Settings.FILE_LIST_DEFAULT_DIRECTORY.value
     observeRemoteImageDiskCache()
+    observeOpenTabsPersistence()
 }
 
 private fun initializeCustomTheme() {
